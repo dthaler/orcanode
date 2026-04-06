@@ -2,6 +2,7 @@ name: Build SD Card Image
 
 on:
   workflow_dispatch:
+  pull_request:
 
 jobs:
   build:
@@ -100,6 +101,8 @@ jobs:
 
       - name: Install Docker
         run: |
+          # Disable apt language/translation downloads to avoid 404 errors on some Debian mirrors
+          echo 'Acquire::Languages "none";' | sudo tee /mnt/etc/apt/apt.conf.d/99no-translations > /dev/null
           sudo chroot /mnt bash -c "curl -fsSL https://get.docker.com | sh"
           sudo chroot /mnt bash -c "usermod -aG docker pi || true"
           echo "Docker installed"
@@ -249,5 +252,5 @@ jobs:
         with:
           name: raspios-orcanode
           path: raspios-orcanode.img.gz
-          retention-days: 30
+          retention-days: 1
           if-no-files-found: error
