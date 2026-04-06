@@ -103,7 +103,13 @@ jobs:
         run: |
           # Disable apt language/translation downloads to avoid 404 errors on some Debian mirrors
           echo 'Acquire::Languages "none";' | sudo tee /mnt/etc/apt/apt.conf.d/99no-translations > /dev/null
+          # Prevent dpkg maintainer scripts from trying to start/enable services inside the chroot.
+          # Without this, Docker package postinst scripts invoke systemctl and cause dpkg to exit 1.
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /mnt/usr/sbin/policy-rc.d > /dev/null
+          sudo chmod +x /mnt/usr/sbin/policy-rc.d
           sudo chroot /mnt bash -c "curl -fsSL https://get.docker.com | sh"
+          # Remove policy-rc.d now that installation is complete so normal service management works on the Pi.
+          sudo rm -f /mnt/usr/sbin/policy-rc.d
           sudo chroot /mnt bash -c "usermod -aG docker pi || true"
           echo "Docker installed"
 
