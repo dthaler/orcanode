@@ -69,6 +69,28 @@ jobs:
           sudo cp /usr/bin/qemu-aarch64-static /mnt/usr/bin/
           echo "Chroot environment ready"
 
+      - name: Set pi user password
+        # Reads PI_PASSWORD from a repository secret and sets it as the default password for
+        # the "pi" account using two complementary mechanisms:
+        #   1. chpasswd -e inside the chroot updates /etc/shadow directly.
+        #   2. /boot/userconf.txt is written for compatibility with newer Raspberry Pi OS
+        #      releases (Bullseye+) that apply credentials from that file on first boot.
+        # If PI_PASSWORD is not set the step is skipped and no password is changed.
+        env:
+          PI_PASSWORD: ${{ secrets.PI_PASSWORD }}
+        run: |
+          if [ -z "$PI_PASSWORD" ]; then
+            echo "PI_PASSWORD secret not set; leaving default pi password unchanged"
+          else
+            HASHED=$(openssl passwd -6 -stdin <<< "$PI_PASSWORD")
+            # Update /etc/shadow inside the image.
+            echo "pi:${HASHED}" | sudo chroot /mnt chpasswd -e
+            # Also write the userconf.txt first-boot credentials file used by newer Pi OS.
+            echo "pi:${HASHED}" | sudo tee /mnt/boot/userconf.txt > /dev/null
+            sudo chmod 600 /mnt/boot/userconf.txt
+            echo "Password set for pi user"
+          fi
+
       - name: Clone orcanode repository into image
         run: |
           sudo mkdir -p /mnt/home/pi
