@@ -45,7 +45,8 @@ jobs:
           truncate -s 4G raspios-orcanode.img
           LOOP=$(sudo losetup -Pf --show raspios-orcanode.img)
           echo "LOOP=$LOOP" >> $GITHUB_ENV
-          sudo e2fsck -f ${LOOP}p2
+          # e2fsck returns 1 when it fixes minor issues — treat that as success
+          sudo e2fsck -fy ${LOOP}p2 || [ $? -eq 1 ]
           sudo resize2fs ${LOOP}p2
 
       - name: Mount partitions
