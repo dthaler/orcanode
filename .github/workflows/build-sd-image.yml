@@ -25,14 +25,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xz-utils qemu-system-arm qemu-user-static binfmt-support
 
-      - name: Enable QEMU user-mode emulation for ARM64
-        run: sudo update-binfmts --enable qemu-aarch64
+      - name: Enable QEMU user-mode emulation for ARM (32-bit)
+        run: sudo update-binfmts --enable qemu-arm
 
-      - name: Download Raspberry Pi OS Lite (64-bit)
+      - name: Download Raspberry Pi OS Lite (32-bit)
         run: |
-          echo "Downloading latest Raspberry Pi OS Lite arm64..."
-          curl -L --retry 3 -o raspios.img.xz \
-            "https://downloads.raspberrypi.com/raspios_lite_arm64_latest"
+          echo "Downloading latest Raspberry Pi OS Lite armhf (32-bit)..."
+          curl -L --retry 3 -o raspios.img.xz "https://downloads.raspberrypi.com/raspios_lite_armhf_latest"
           ls -lh raspios.img.xz
 
       - name: Decompress image
@@ -41,11 +40,13 @@ jobs:
           mv raspios.img raspios-orcanode.img
           ls -lh raspios-orcanode.img
 
-      - name: Setup loop device
+      - name: Expand the root filesystem and set up loop device
         run: |
+          truncate -s 4G raspios-orcanode.img
           LOOP=$(sudo losetup -Pf --show raspios-orcanode.img)
           echo "LOOP=$LOOP" >> $GITHUB_ENV
-          echo "Loop device: $LOOP"
+          sudo e2fsck -f ${LOOP}p2
+          sudo resize2fs ${LOOP}p2
 
       - name: Mount partitions
         env:
@@ -67,8 +68,24 @@ jobs:
           sudo mount --bind /sys /mnt/sys
           sudo mount --bind /dev /mnt/dev
           sudo mount --bind /dev/pts /mnt/dev/pts
-          sudo cp /usr/bin/qemu-aarch64-static /mnt/usr/bin/
+          sudo cp /usr/bin/qemu-arm-static /mnt/usr/bin/
           echo "Chroot environment ready"
+
+      - name: Fix Raspberry Pi OS apt sources (force Bookworm armhf)
+        run: |
+          sudo chroot /mnt bash -c "
+            cat > /etc/apt/sources.list << 'EOF'
+deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+EOF
+          "
+
+          sudo chroot /mnt bash -c "
+            cat > /etc/apt/sources.list.d/raspi.list << 'EOF'
+deb http://archive.raspberrypi.com/debian bookworm main
+EOF
+          "
 
       - name: Set pi user password
         # Reads PI_PASSWORD from a repository secret and sets it as the default password for
@@ -99,13 +116,13 @@ jobs:
           sudo chown -R 1000:1000 /mnt/home/pi/orcanode
           echo "Orcanode repository cloned"
 
-      - name: Install Docker
+      - name: Install Docker (armhf Bookworm)
         run: |
           sudo chroot /mnt bash -c "
             install -m 0755 -d /etc/apt/keyrings
             curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
             chmod a+r /etc/apt/keyrings/docker.asc
-            echo 'deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable' > /etc/apt/sources.list.d/docker.list
+            echo 'deb [arch=armhf signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable' > /etc/apt/sources.list.d/docker.list
             apt-get update
             apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
             systemctl enable docker || true
@@ -113,26 +130,14 @@ jobs:
           "
           echo "Docker installed"
 
-      - name: Install docker-compose
-        run: |
-          COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest \
-            | grep '"tag_name"' | cut -d'"' -f4)
-          echo "Installing docker-compose ${COMPOSE_VERSION} (linux-aarch64)..."
-          sudo curl -L \
-            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-aarch64" \
-            -o /mnt/usr/local/bin/docker-compose
-          sudo chmod +x /mnt/usr/local/bin/docker-compose
-          echo "docker-compose ${COMPOSE_VERSION} installed at /usr/local/bin/docker-compose"
-
       - name: Configure crontab for pi user
         run: |
           sudo mkdir -p /mnt/var/spool/cron/crontabs
-          # Cron environment variables reduce repetition of the compose binary and file paths.
           printf '%s\n%s\n%s\n%s\n' \
-            'DC=/usr/local/bin/docker-compose' \
+            'DC=/usr/bin/docker' \
             'CF=/home/pi/orcanode/node/docker-compose.yml' \
-            '0 0 * * * $DC -f $CF down && $DC -f $CF up -d' \
-            '@reboot sleep 60 && $DC -f $CF up -d' \
+            '0 0 * * * $DC compose -f $CF down && $DC compose -f $CF up -d' \
+            '@reboot sleep 60 && $DC compose -f $CF up -d' \
             | sudo tee /mnt/var/spool/cron/crontabs/pi > /dev/null
           sudo chroot /mnt bash -c "chown pi:crontab /var/spool/cron/crontabs/pi 2>/dev/null || chown 1000:1000 /var/spool/cron/crontabs/pi"
           sudo chmod 600 /mnt/var/spool/cron/crontabs/pi
@@ -166,26 +171,33 @@ jobs:
       - name: Configure SocketXP identity wipe on first boot
         run: |
           sudo tee /mnt/etc/systemd/system/clear-socketxp.service > /dev/null << 'EOF'
-          [Unit]
-          Description=Clear SocketXP identity on first boot
-          After=network.target
+[Unit]
+Description=Clear SocketXP identity on first boot
+After=network.target
 
-          [Service]
-          Type=oneshot
-          ExecStart=/bin/bash -c "rm -rf /var/lib/socketxp/*"
-          ExecStartPost=/bin/bash -c "systemctl disable clear-socketxp.service"
-          RemainAfterExit=yes
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c "rm -rf /var/lib/socketxp/*"
+ExecStartPost=/bin/bash -c "systemctl disable clear-socketxp.service"
+RemainAfterExit=yes
 
-          [Install]
-          WantedBy=multi-user.target
-          EOF
+[Install]
+WantedBy=multi-user.target
+EOF
           sudo systemctl --root=/mnt enable clear-socketxp.service \
             || echo "Warning: could not enable clear-socketxp.service (SocketXP may not be installed)"
           echo "SocketXP identity wipe service configured"
 
+      - name: Clean machine-id for unique first boot
+        run: |
+          sudo rm -f /mnt/etc/machine-id
+          sudo rm -f /mnt/var/lib/dbus/machine-id
+          sudo touch /mnt/etc/machine-id
+          echo "machine-id cleaned"
+
       - name: Clean up chroot environment
         run: |
-          sudo rm -f /mnt/usr/bin/qemu-aarch64-static
+          sudo rm -f /mnt/usr/bin/qemu-arm-static
           sudo umount /mnt/dev/pts || true
           sudo umount /mnt/dev    || true
           sudo umount /mnt/sys    || true
