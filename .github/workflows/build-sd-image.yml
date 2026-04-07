@@ -76,15 +76,15 @@ jobs:
         run: |
           sudo chroot /mnt bash -c "
             cat > /etc/apt/sources.list << 'EOF'
-deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+            deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+            deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+            deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 EOF
           "
 
           sudo chroot /mnt bash -c "
             cat > /etc/apt/sources.list.d/raspi.list << 'EOF'
-deb http://archive.raspberrypi.com/debian bookworm main
+            deb http://archive.raspberrypi.com/debian bookworm main
 EOF
           "
 
