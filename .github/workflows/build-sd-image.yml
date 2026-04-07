@@ -103,24 +103,13 @@ jobs:
         run: |
           # Disable apt language/translation downloads to avoid 404 errors on some Debian mirrors
           echo 'Acquire::Languages "none";' | sudo tee /mnt/etc/apt/apt.conf.d/99no-translations > /dev/null
-
-          # Block service management inside the chroot using two complementary mechanisms:
-          #   1. policy-rc.d (exit 101) – stops invoke-rc.d from starting services.
-          #   2. dpkg-divert + symlink to /bin/true for systemctl – stops packages that
-          #      call systemctl directly (bypassing invoke-rc.d) from failing.
+          # Prevent dpkg maintainer scripts from trying to start/enable services inside the chroot.
+          # Without this, Docker package postinst scripts invoke systemctl and cause dpkg to exit 1.
           printf '#!/bin/sh\nexit 101\n' | sudo tee /mnt/usr/sbin/policy-rc.d > /dev/null
           sudo chmod +x /mnt/usr/sbin/policy-rc.d
-          sudo chroot /mnt bash -c "dpkg-divert --local --rename --add /usr/bin/systemctl"
-          sudo ln -sf /bin/true /mnt/usr/bin/systemctl
-
-          # Use the Raspberry Pi–maintained Docker install script.
-          sudo chroot /mnt bash -c "curl -sSL https://get.docker.com | sh"
-
-          # Restore systemctl and remove policy-rc.d so the Pi boots with normal service management.
-          sudo rm -f /mnt/usr/bin/systemctl
-          sudo chroot /mnt bash -c "dpkg-divert --local --rename --remove /usr/bin/systemctl"
+          sudo chroot /mnt bash -c "curl -fsSL https://get.docker.com | sh"
+          # Remove policy-rc.d now that installation is complete so normal service management works on the Pi.
           sudo rm -f /mnt/usr/sbin/policy-rc.d
-
           sudo chroot /mnt bash -c "usermod -aG docker pi || true"
           echo "Docker installed"
 
