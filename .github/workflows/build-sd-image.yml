@@ -74,19 +74,8 @@ jobs:
 
       - name: Fix Raspberry Pi OS apt sources (force Bookworm armhf)
         run: |
-          sudo chroot /mnt bash -c "
-            cat > /etc/apt/sources.list << 'EOF'
-            deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
-            deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
-            deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-EOF
-          "
-
-          sudo chroot /mnt bash -c "
-            cat > /etc/apt/sources.list.d/raspi.list << 'EOF'
-            deb http://archive.raspberrypi.com/debian bookworm main
-EOF
-          "
+          sudo cp sd-image-files/sources.list /mnt/etc/apt/sources.list
+          sudo cp sd-image-files/raspi.list /mnt/etc/apt/sources.list.d/raspi.list
 
       - name: Set pi user password
         # Reads PI_PASSWORD from a repository secret and sets it as the default password for
