@@ -74,6 +74,12 @@ jobs:
 
       - name: Fix Raspberry Pi OS apt sources (force Bookworm armhf)
         run: |
+          # Remove ALL Raspberry Pi OS repo files (some contain Trixie)
+          sudo rm -f /mnt/etc/apt/sources.list.d/raspi.list*
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.distUpgrade || true
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.save || true
+
+          # Install your known-good Bookworm sources
           sudo cp sd-image-files/sources.list /mnt/etc/apt/sources.list
           sudo cp sd-image-files/raspi.list /mnt/etc/apt/sources.list.d/raspi.list
 
@@ -141,22 +147,33 @@ jobs:
             || echo "Warning: Mezmo installation failed or skipped"
 
       - name: Install Dataplicity agent
-        # curl | sh is the vendor-documented installation method for Dataplicity.
         env:
           DATAPLICITY_TOKEN: ${{ secrets.DATAPLICITY_TOKEN }}
         run: |
           if [ -n "$DATAPLICITY_TOKEN" ]; then
-            sudo chroot /mnt bash -c "curl -s https://www.dataplicity.com/${DATAPLICITY_TOKEN}/ | sh"
+            sudo chroot /mnt bash -c "curl -s https://www.dataplicity.com/${DATAPLICITY_TOKEN}.py | python3"
             echo "Dataplicity agent installed"
           else
             echo "DATAPLICITY_TOKEN secret not set; skipping Dataplicity installation"
           fi
 
-      - name: Install SocketXP agent
-        # curl | bash is the vendor-documented installation method for SocketXP.
+      - name: Install SocketXP (armhf)
         run: |
-          sudo chroot /mnt bash -c "curl -s https://portal.socketxp.com/install.sh | bash" \
-            || echo "Warning: SocketXP installation failed or skipped"
+          # Download installer on the host (avoids chroot TLS issues)
+          curl -fsSL -o socketxp_install.sh \
+            https://portal.socketxp.com/download/iot/socketxp_install.sh
+
+          chmod +x socketxp_install.sh
+
+          # Copy into the image
+          sudo cp socketxp_install.sh /mnt/tmp/socketxp_install.sh
+
+          # Run inside chroot
+          sudo chroot /mnt bash -c "
+            /tmp/socketxp_install.sh -a '${{ secrets.SOCKETXP_AUTH_TOKEN }}'
+          " || echo 'Warning: SocketXP installation failed or skipped'
+
+          echo "SocketXP installed"
 
       - name: Configure SocketXP identity wipe on first boot
         run: |
