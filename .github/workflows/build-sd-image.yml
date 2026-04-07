@@ -160,7 +160,7 @@ jobs:
 
       - name: Configure SocketXP identity wipe on first boot
         run: |
-          sudo cp .github/sd-image-files/clear-socketxp.service /mnt/etc/systemd/system/clear-socketxp.service
+          sudo cp sd-image-files/clear-socketxp.service /mnt/etc/systemd/system/clear-socketxp.service
           sudo systemctl --root=/mnt enable clear-socketxp.service \
             || echo "Warning: could not enable clear-socketxp.service (SocketXP may not be installed)"
           echo "SocketXP identity wipe service configured"
