@@ -160,20 +160,7 @@ jobs:
 
       - name: Configure SocketXP identity wipe on first boot
         run: |
-          sudo tee /mnt/etc/systemd/system/clear-socketxp.service > /dev/null << 'EOF'
-[Unit]
-Description=Clear SocketXP identity on first boot
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c "rm -rf /var/lib/socketxp/*"
-ExecStartPost=/bin/bash -c "systemctl disable clear-socketxp.service"
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
+          sudo cp .github/sd-image-files/clear-socketxp.service /mnt/etc/systemd/system/clear-socketxp.service
           sudo systemctl --root=/mnt enable clear-socketxp.service \
             || echo "Warning: could not enable clear-socketxp.service (SocketXP may not be installed)"
           echo "SocketXP identity wipe service configured"
