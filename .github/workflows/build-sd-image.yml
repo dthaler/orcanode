@@ -146,15 +146,24 @@ jobs:
           sudo chroot /mnt bash -c "curl -s https://assets.mezmo.com/install/linux | bash" \
             || echo "Warning: Mezmo installation failed or skipped"
 
-      - name: Install Dataplicity agent
+      - name: Configure Dataplicity agent install on first boot
         env:
           DATAPLICITY_TOKEN: ${{ secrets.DATAPLICITY_TOKEN }}
         run: |
           if [ -n "$DATAPLICITY_TOKEN" ]; then
-            sudo chroot /mnt bash -c "curl -s https://www.dataplicity.com/${DATAPLICITY_TOKEN}.py | python3"
-            echo "Dataplicity agent installed"
+            # Write a first-boot script containing the token-specific install URL.
+            # The script is executed by a systemd one-shot service on first boot so that
+            # Dataplicity can register with the cloud service from the actual device.
+            printf '#!/bin/bash\ncurl -s https://www.dataplicity.com/%s.py | python3\n' \
+              "$DATAPLICITY_TOKEN" \
+              | sudo tee /mnt/usr/local/sbin/install-dataplicity.sh > /dev/null
+            sudo chmod 700 /mnt/usr/local/sbin/install-dataplicity.sh
+            sudo cp sd-image-files/install-dataplicity.service \
+              /mnt/etc/systemd/system/install-dataplicity.service
+            sudo systemctl --root=/mnt enable install-dataplicity.service
+            echo "Dataplicity first-boot install configured"
           else
-            echo "DATAPLICITY_TOKEN secret not set; skipping Dataplicity installation"
+            echo "DATAPLICITY_TOKEN secret not set; skipping Dataplicity configuration"
           fi
 
       - name: Install SocketXP (armhf)
