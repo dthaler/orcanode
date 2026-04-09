@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xz-utils qemu-system-arm qemu-user-static binfmt-support
+          sudo apt-get install -y xz-utils qemu-system-arm qemu-user-static binfmt-support cloud-guest-utils
 
       - name: Enable QEMU user-mode emulation for ARM (32-bit)
         run: sudo update-binfmts --enable qemu-arm
@@ -42,9 +42,11 @@ jobs:
 
       - name: Expand the root filesystem and set up loop device
         run: |
-          truncate -s 4G raspios-orcanode.img
+          truncate -s 8G raspios-orcanode.img
           LOOP=$(sudo losetup -Pf --show raspios-orcanode.img)
           echo "LOOP=$LOOP" >> $GITHUB_ENV
+          # Grow partition 2 to fill the new free space before resizing the filesystem
+          sudo growpart $LOOP 2
           # e2fsck returns 1 when it fixes minor issues — treat that as success
           sudo e2fsck -fy ${LOOP}p2 || [ $? -eq 1 ]
           sudo resize2fs ${LOOP}p2
