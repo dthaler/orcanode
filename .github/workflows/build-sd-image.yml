@@ -185,30 +185,47 @@ jobs:
             echo "DATAPLICITY_TOKEN secret not set; skipping Dataplicity configuration"
           fi
 
-      - name: Install SocketXP (armhf)
+      - name: Configure SocketXP installation on first boot
+        env:
+          SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
         run: |
-          # Download installer on the host (avoids chroot TLS issues)
-          curl -fsSL -o socketxp_install.sh \
-            https://portal.socketxp.com/download/iot/socketxp_install.sh
-
-          chmod +x socketxp_install.sh
-
-          # Copy into the image
-          sudo cp socketxp_install.sh /mnt/tmp/socketxp_install.sh
-
-          # Run inside chroot
-          sudo chroot /mnt bash -c "
-            /tmp/socketxp_install.sh -a '${{ secrets.SOCKETXP_AUTH_TOKEN }}'
-          " || echo 'Warning: SocketXP installation failed or skipped'
-
-          echo "SocketXP installed"
-
-      - name: Configure SocketXP identity wipe on first boot
-        run: |
-          sudo cp sd-image-files/clear-socketxp.service /mnt/etc/systemd/system/clear-socketxp.service
-          sudo systemctl --root=/mnt enable clear-socketxp.service \
-            || echo "Warning: could not enable clear-socketxp.service (SocketXP may not be installed)"
-          echo "SocketXP identity wipe service configured"
+          if [ -n "$SOCKETXP_AUTH_TOKEN" ]; then
+            # Copy installation script with token embedded
+            sudo tee /mnt/usr/local/sbin/install-socketxp.sh > /dev/null << EOF
+          #!/bin/bash
+          # Install and configure SocketXP on first boot
+          set -e
+          
+          echo "Installing SocketXP..."
+          curl -fsSL https://portal.socketxp.com/download/iot/socketxp_install.sh | bash -s -- -a "$SOCKETXP_AUTH_TOKEN"
+          echo "SocketXP installed and configured"
+          EOF
+            
+            sudo chmod 700 /mnt/usr/local/sbin/install-socketxp.sh
+            
+            # Copy and enable systemd service
+            sudo tee /mnt/etc/systemd/system/install-socketxp.service > /dev/null << 'EOF'
+          [Unit]
+          Description=Install SocketXP on first boot
+          After=network-online.target
+          Wants=network-online.target
+          ConditionPathExists=!/usr/local/bin/socketxp
+          
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/install-socketxp.sh
+          RemainAfterExit=yes
+          User=root
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+            
+            sudo systemctl --root=/mnt enable install-socketxp.service
+            echo "SocketXP first-boot install configured"
+          else
+            echo "SOCKETXP_AUTH_TOKEN secret not set; skipping SocketXP configuration"
+          fi
 
       - name: Clean machine-id for unique first boot
         run: |

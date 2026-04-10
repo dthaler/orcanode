@@ -1,0 +1,14 @@
+[Unit]
+Description=Install SocketXP on first boot
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/usr/local/bin/socketxp
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/install-socketxp.sh %SOCKETXP_TOKEN%
+RemainAfterExit=yes
+User=root
+
+[Install]
+WantedBy=multi-user.target
