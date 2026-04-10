@@ -1,7 +1,7 @@
 # SD Card Image — Workflows
 
 This directory contains the support files used by the
-[Build SD Card Image](.github/workflows/build-sd-image.yml) CI workflow to
+[Build SD Card Image](../.github/workflows/build-sd-image.yml) CI workflow to
 create a ready-to-run Raspberry Pi OS image for an Orcasound hydrophone node.
 
 The SD card image and the orcanode container image are **decoupled**:
