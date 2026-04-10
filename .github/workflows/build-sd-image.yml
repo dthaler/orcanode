@@ -90,12 +90,6 @@ jobs:
           sudo cp sd-image-files/raspi.list /mnt/etc/apt/sources.list.d/raspi.list
 
       - name: Set pi user password
-        # Reads PI_PASSWORD from a repository secret and sets it as the default password for
-        # the "pi" account using two complementary mechanisms:
-        #   1. chpasswd -e inside the chroot updates /etc/shadow directly.
-        #   2. /boot/userconf.txt is written for compatibility with newer Raspberry Pi OS
-        #      releases (Bullseye+) that apply credentials from that file on first boot.
-        # If PI_PASSWORD is not set the step is skipped and no password is changed.
         env:
           PI_PASSWORD: ${{ secrets.PI_PASSWORD }}
         run: |
@@ -103,129 +97,67 @@ jobs:
             echo "PI_PASSWORD secret not set; leaving default pi password unchanged"
           else
             HASHED=$(openssl passwd -6 -stdin <<< "$PI_PASSWORD")
-            # Update /etc/shadow inside the image.
             echo "pi:${HASHED}" | sudo chroot /mnt chpasswd -e
-            # Also write the userconf.txt first-boot credentials file used by newer Pi OS.
             echo "pi:${HASHED}" | sudo tee /mnt/boot/userconf.txt > /dev/null
             sudo chmod 600 /mnt/boot/userconf.txt
             echo "Password set for pi user"
+            
+            # Save the password hash for use in encryption
+            echo "PASSWORD_HASH=$HASHED" >> $GITHUB_ENV
           fi
 
-      - name: Configure orcanode installation on first boot
-        run: |
-          # Copy first-boot installation script.
-          sudo cp sd-image-files/install-orcanode.sh /mnt/usr/local/sbin/install-orcanode.sh
-          sudo chmod 755 /mnt/usr/local/sbin/install-orcanode.sh
-          
-          # Copy and enable systemd service.
-          sudo cp sd-image-files/install-orcanode.service /mnt/etc/systemd/system/install-orcanode.service
-          sudo systemctl --root=/mnt enable install-orcanode.service
-          
-          echo "Orcanode first-boot install configured"
-
-      - name: Add manual update helper script
-        run: |
-          # Copy update helper script.
-          sudo cp sd-image-files/orcanode-update.sh /mnt/usr/local/bin/orcanode-update
-          sudo chmod 755 /mnt/usr/local/bin/orcanode-update
-          
-          echo "Manual update helper script installed"
-
-      - name: Install Docker (armhf Bookworm)
-        run: |
-          sudo chroot /mnt bash -c "
-            install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
-            echo 'deb [arch=armhf signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable' > /etc/apt/sources.list.d/docker.list
-            apt-get update
-            apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            usermod -aG docker pi || true
-          "
-          sudo systemctl --root=/mnt enable docker.service
-          echo "Docker installed"
-
-      - name: Configure crontab for pi user
-        run: |
-          sudo mkdir -p /mnt/var/spool/cron/crontabs
-          printf '%s\n%s\n%s\n%s\n' \
-            'DC=/usr/bin/docker' \
-            'CF=/home/pi/orcanode/node/docker-compose.yml' \
-            '0 0 * * * $DC compose -f $CF down && $DC compose -f $CF up -d' \
-            '@reboot sleep 60 && $DC compose -f $CF up -d' \
-            | sudo tee /mnt/var/spool/cron/crontabs/pi > /dev/null
-          sudo chroot /mnt bash -c "chown pi:crontab /var/spool/cron/crontabs/pi 2>/dev/null || chown 1000:1000 /var/spool/cron/crontabs/pi"
-          sudo chmod 600 /mnt/var/spool/cron/crontabs/pi
-          echo "Crontab configured for pi user"
-
-      - name: Install Mezmo logging agent
-        # Mezmo does not provide a .deb package; use the official install script instead.
-        # The script is the vendor-documented installation method (no checksum published).
-        run: |
-          sudo chroot /mnt bash -c "curl -s https://assets.mezmo.com/install/linux | bash" \
-            || echo "Warning: Mezmo installation failed or skipped"
-
-      - name: Configure Dataplicity agent install on first boot
+      - name: Encrypt and embed remote access secrets
         env:
+          PI_PASSWORD: ${{ secrets.PI_PASSWORD }}
           DATAPLICITY_TOKEN: ${{ secrets.DATAPLICITY_TOKEN }}
-        run: |
-          if [ -n "$DATAPLICITY_TOKEN" ]; then
-            # Write a first-boot script containing the token-specific install URL.
-            # The script is executed by a systemd one-shot service on first boot so that
-            # Dataplicity can register with the cloud service from the actual device.
-            printf '#!/bin/bash\ncurl -s https://www.dataplicity.com/%s.py | python3\n' \
-              "$DATAPLICITY_TOKEN" \
-              | sudo tee /mnt/usr/local/sbin/install-dataplicity.sh > /dev/null
-            sudo chmod 700 /mnt/usr/local/sbin/install-dataplicity.sh
-            sudo cp sd-image-files/install-dataplicity.service \
-              /mnt/etc/systemd/system/install-dataplicity.service
-            sudo systemctl --root=/mnt enable install-dataplicity.service
-            echo "Dataplicity first-boot install configured"
-          else
-            echo "DATAPLICITY_TOKEN secret not set; skipping Dataplicity configuration"
-          fi
-
-      - name: Configure SocketXP installation on first boot
-        env:
           SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
         run: |
-          if [ -n "$SOCKETXP_AUTH_TOKEN" ]; then
-            # Copy installation script with token embedded
-            sudo tee /mnt/usr/local/sbin/install-socketxp.sh > /dev/null << EOF
-          #!/bin/bash
-          # Install and configure SocketXP on first boot
-          set -e
-          
-          echo "Installing SocketXP..."
-          curl -fsSL https://portal.socketxp.com/download/iot/socketxp_install.sh | bash -s -- -a "$SOCKETXP_AUTH_TOKEN"
-          echo "SocketXP installed and configured"
+          # Only proceed if we have a password set and at least one token
+          if [ -n "$PI_PASSWORD" ] && { [ -n "$DATAPLICITY_TOKEN" ] || [ -n "$SOCKETXP_AUTH_TOKEN" ]; }; then
+            echo "Encrypting remote access secrets..."
+            
+            # Create secrets file
+            cat > /tmp/secrets.env << EOF
+          # Remote access tokens - decrypted on first boot
+          DATAPLICITY_TOKEN="${DATAPLICITY_TOKEN}"
+          SOCKETXP_AUTH_TOKEN="${SOCKETXP_AUTH_TOKEN}"
           EOF
             
-            sudo chmod 700 /mnt/usr/local/sbin/install-socketxp.sh
+            # Derive encryption key from password hash
+            PASSPHRASE=$(echo -n "${{ env.PASSWORD_HASH }}" | sha256sum | cut -d' ' -f1 | cut -c1-32)
             
-            # Copy and enable systemd service
-            sudo tee /mnt/etc/systemd/system/install-socketxp.service > /dev/null << 'EOF'
-          [Unit]
-          Description=Install SocketXP on first boot
-          After=network-online.target
-          Wants=network-online.target
-          ConditionPathExists=!/usr/local/bin/socketxp
-          
-          [Service]
-          Type=oneshot
-          ExecStart=/usr/local/sbin/install-socketxp.sh
-          RemainAfterExit=yes
-          User=root
-          
-          [Install]
-          WantedBy=multi-user.target
-          EOF
+            # Encrypt secrets file
+            echo "$PASSPHRASE" | openssl enc -aes-256-cbc -pbkdf2 -in /tmp/secrets.env -out /tmp/orcanode-secrets.enc -pass stdin
             
-            sudo systemctl --root=/mnt enable install-socketxp.service
-            echo "SocketXP first-boot install configured"
+            # Copy encrypted file to image
+            sudo mkdir -p /mnt/usr/local/etc
+            sudo cp /tmp/orcanode-secrets.enc /mnt/usr/local/etc/orcanode-secrets.enc
+            sudo chmod 600 /mnt/usr/local/etc/orcanode-secrets.enc
+            
+            # Clean up
+            shred -u /tmp/secrets.env 2>/dev/null || rm -f /tmp/secrets.env
+            rm -f /tmp/orcanode-secrets.enc
+            
+            echo "Encrypted secrets embedded in image"
           else
-            echo "SOCKETXP_AUTH_TOKEN secret not set; skipping SocketXP configuration"
+            echo "No password or tokens configured; skipping secret encryption"
           fi
+
+      - name: Configure secret decryption on first boot
+        run: |
+          # Copy decryption script
+          sudo cp sd-image-files/install-secrets.sh /mnt/usr/local/sbin/install-secrets.sh
+          sudo chmod 755 /mnt/usr/local/sbin/install-secrets.sh
+          
+          # Copy and enable systemd service
+          sudo cp sd-image-files/install-secrets.service /mnt/etc/systemd/system/install-secrets.service
+          sudo systemctl --root=/mnt enable install-secrets.service
+          
+          echo "Secret decryption configured for first boot"
+
+      # REMOVE these old steps - no longer needed:
+      # - name: Configure Dataplicity agent install on first boot
+      # - name: Configure SocketXP installation on first boot
 
       - name: Clean machine-id for unique first boot
         run: |
