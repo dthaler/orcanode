@@ -349,4 +349,4 @@ jobs:
         with:
           name: raspios-orcanode-dev
           path: ${{ env.IMAGE_FILE }}
-          retention-days: 7
+          retention-days: 1
