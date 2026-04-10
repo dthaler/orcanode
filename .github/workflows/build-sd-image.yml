@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Free disk space
         run: |
@@ -321,7 +321,7 @@ jobs:
 
       - name: Upload to GitHub Release
         if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           files: |
             ${{ env.IMAGE_FILE }}
@@ -345,7 +345,7 @@ jobs:
 
       - name: Upload artifact for testing (PR/dev builds)
         if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: raspios-orcanode-dev
           path: ${{ env.IMAGE_FILE }}

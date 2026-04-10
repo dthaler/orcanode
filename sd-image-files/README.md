@@ -22,9 +22,6 @@ ever reflashing an SD card.
 | `PI_PASSWORD` | Default password for the `pi` account. If not set the factory default password is left unchanged. |
 | `DATAPLICITY_TOKEN` | Token from the Dataplicity dashboard used to register the device on first boot. If not set, Dataplicity is not configured. |
 | `SOCKETXP_AUTH_TOKEN` | Auth token for SocketXP remote-access tunnel. If not set, the SocketXP install step is skipped. |
-| `CANARY_PI_HOST` | Hostname/IP of the canary Pi used by the fleet deploy workflow. |
-| `FLEET_SSH_KEY` | SSH private key used by the fleet deploy workflow to reach each Pi. |
-| `PI_HOST_prod-pi-1` … | Hostname/IP secrets for each production Pi used by the fleet deploy workflow. |
 
 ---
 
@@ -70,13 +67,19 @@ What the workflow does:
    - Configures a crontab for the `pi` user to start and daily-restart the
      container.
 4. Cleans the machine-id so each flashed card gets a unique identity on boot.
-5. Compresses the image and uploads it as the `raspios-orcanode` artifact
-   (retained for 1 day).
+5. Compresses the image and:
+   - For **pull request / dev builds**: uploads it as the `raspios-orcanode-dev`
+     artifact (retained for **7 days**).
+   - For **tagged releases** (`v*.*.*`): publishes a GitHub Release with the
+     compressed image attached permanently.
 
 ### 2 — Flash the image to an SD card
 
-1. Download the `raspios-orcanode` artifact (a `.img.gz` file) from the
-   GitHub Actions run.
+1. Download the image:
+   - **PR/dev builds**: download the `raspios-orcanode-dev` artifact from the
+     GitHub Actions run (available for 7 days).
+   - **Tagged releases**: download the `.img.gz` asset from the
+     [GitHub Releases page](../releases) for the desired version tag.
 2. Flash it to a microSD card (32 GB or larger):
    - **Raspberry Pi Imager** (recommended): choose *Use custom image* and
      select the downloaded `.img.gz` file.
@@ -98,7 +101,7 @@ On first boot the following happens automatically:
 | Raspberry Pi OS resize | Expands the root partition to fill the entire SD card. |
 | `install-orcanode.service` | Clones `https://github.com/orcasound/orcanode` to `/home/pi/orcanode` and writes a `docker-compose.yml` that pulls the container image from GHCR. Runs only once (condition: `/home/pi/orcanode` does not exist). |
 | `install-dataplicity.service` | Runs `/usr/local/sbin/install-dataplicity.sh` to register the device with Dataplicity, then self-disables. Requires `DATAPLICITY_TOKEN` to have been set at build time. |
-| `clear-socketxp.service` | Wipes the SocketXP identity (`/var/lib/socketxp/`) so the device registers as a new unique device, then self-disables. |
+| `install-socketxp.service` | Runs `/usr/local/sbin/install-socketxp.sh` to install and configure the SocketXP remote-access agent, then self-disables. Requires `SOCKETXP_AUTH_TOKEN` to have been set at build time. |
 | `cron` (`@reboot`) | After a 60-second delay, starts the orcanode container via `docker compose up -d`. |
 
 SSH is available immediately after boot on port 22 with user `pi` and the
@@ -193,8 +196,10 @@ The `pi` crontab contains:
            && /usr/bin/docker compose -f /home/pi/orcanode/node/docker-compose.yml up -d
 ```
 
-Every night at midnight the container is stopped, the latest image is pulled
-from GHCR, and a fresh container is started.
+Every night at midnight the container is stopped and restarted with the
+currently pulled image. To pick up a newer image, run `orcanode-update` (or
+use the fleet deploy workflow) before the midnight restart, or pull manually
+with `docker compose pull` first.
 
 ---
 
@@ -204,8 +209,9 @@ from GHCR, and a fresh container is started.
 
 - Code changes, dependency updates, bug fixes, feature additions.
 
-How: push to `main` → `build-container.yml` rebuilds `:latest` → Pis pull the
-new image at midnight (or sooner via manual/fleet deploy).
+How: push to `main` → `build-container.yml` rebuilds `:latest` → deploy via
+`orcanode-update` or the fleet deploy workflow (the nightly cron restarts the
+container but does not pull).
 
 ### Rebuild the SD card image (infrequent)
 
@@ -255,5 +261,6 @@ Day 45: Critical bugfix needed
 | `install-orcanode.sh` | Script that clones the repository and sets up `docker-compose.yml` on first boot. |
 | `install-orcanode.service` | Systemd unit that runs `install-orcanode.sh` once on first boot. |
 | `install-dataplicity.service` | Systemd unit that runs the Dataplicity registration script once on first boot. |
-| `clear-socketxp.service` | Systemd unit that wipes the SocketXP identity on first boot so the device registers as new. |
+| `install-socketxp.sh` | Script that installs and configures the SocketXP remote-access agent on first boot. |
+| `install-socketxp.service` | Systemd unit that runs `install-socketxp.sh` once on first boot. |
 | `orcanode-update.sh` | Helper script installed at `/usr/local/bin/orcanode-update` for manual container updates. |
