@@ -21,6 +21,9 @@ jobs:
     if: inputs.target == 'canary' || inputs.target == 'all'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
       - name: Deploy to canary Pi
         env:
           CANARY_HOST: ${{ secrets.CANARY_PI_HOST }}
@@ -30,13 +33,13 @@ jobs:
           echo "$SSH_KEY" > /tmp/ssh_key
           chmod 600 /tmp/ssh_key
           
-          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@$CANARY_HOST << 'EOF'
-            cd ~/orcanode
-            export IMAGE_TAG="${IMAGE_TAG}"
-            docker compose pull
-            docker compose up -d
-            docker compose ps
-          EOF
+          # Copy deployment script to Pi
+          scp -i /tmp/ssh_key -o StrictHostKeyChecking=no \
+            sd-image-files/deploy-update.sh pi@$CANARY_HOST:/tmp/deploy-update.sh
+          
+          # Execute deployment script
+          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@$CANARY_HOST \
+            "bash /tmp/deploy-update.sh '$IMAGE_TAG'"
       
       - name: Wait for canary health check
         run: |
@@ -50,24 +53,28 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # List your production Pi hostnames/IPs
+        # Use underscores to match GitHub secret naming rules
         host: 
-          - prod-pi-1
-          - prod-pi-2
-          - prod-pi-3
+          - prod_pi_1
+          - prod_pi_2
+          - prod_pi_3
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
       - name: Deploy to ${{ matrix.host }}
         env:
           SSH_KEY: ${{ secrets.FLEET_SSH_KEY }}
           IMAGE_TAG: ${{ inputs.image_tag }}
+          PI_HOST: ${{ secrets[format('PI_HOST_{0}', matrix.host)] }}
         run: |
           echo "$SSH_KEY" > /tmp/ssh_key
           chmod 600 /tmp/ssh_key
           
-          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@${{ secrets[format('PI_HOST_{0}', matrix.host)] }} << 'EOF'
-            cd ~/orcanode
-            export IMAGE_TAG="${IMAGE_TAG}"
-            docker compose pull
-            docker compose up -d
-            echo "Deployed to $(hostname)"
-          EOF
+          # Copy deployment script to Pi
+          scp -i /tmp/ssh_key -o StrictHostKeyChecking=no \
+            sd-image-files/deploy-update.sh pi@$PI_HOST:/tmp/deploy-update.sh
+          
+          # Execute deployment script
+          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@$PI_HOST \
+            "bash /tmp/deploy-update.sh '$IMAGE_TAG'"

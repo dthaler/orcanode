@@ -49,9 +49,9 @@ jobs:
           truncate -s 8G raspios-orcanode.img
           LOOP=$(sudo losetup -Pf --show raspios-orcanode.img)
           echo "LOOP=$LOOP" >> $GITHUB_ENV
-          # Grow partition 2 to fill the new free space before resizing the filesystem
+          # Grow partition 2 to fill the new free space before resizing the filesystem.
           sudo growpart $LOOP 2
-          # e2fsck returns 1 when it fixes minor issues — treat that as success
+          # e2fsck returns 1 when it fixes minor issues — treat that as success.
           sudo e2fsck -fy ${LOOP}p2 || [ $? -eq 1 ]
           sudo resize2fs ${LOOP}p2
 
@@ -80,12 +80,12 @@ jobs:
 
       - name: Fix Raspberry Pi OS apt sources (force Bookworm armhf)
         run: |
-          # Remove ALL Raspberry Pi OS repo files (some contain Trixie)
+          # Remove ALL Raspberry Pi OS repo files (some contain Trixie).
           sudo rm -f /mnt/etc/apt/sources.list.d/raspi.list*
           sudo rm -f /mnt/etc/apt/sources.list.d/*.distUpgrade || true
           sudo rm -f /mnt/etc/apt/sources.list.d/*.save || true
 
-          # Install your known-good Bookworm sources
+          # Install your known-good Bookworm sources.
           sudo cp sd-image-files/sources.list /mnt/etc/apt/sources.list
           sudo cp sd-image-files/raspi.list /mnt/etc/apt/sources.list.d/raspi.list
 
@@ -102,7 +102,7 @@ jobs:
             sudo chmod 600 /mnt/boot/userconf.txt
             echo "Password set for pi user"
             
-            # Save the password hash for use in encryption
+            # Save the password hash for use in encryption.
             echo "PASSWORD_HASH=$HASHED" >> $GITHUB_ENV
           fi
 
@@ -112,29 +112,28 @@ jobs:
           DATAPLICITY_TOKEN: ${{ secrets.DATAPLICITY_TOKEN }}
           SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
         run: |
-          # Only proceed if we have a password set and at least one token
+          # Only proceed if we have a password set and at least one token.
           if [ -n "$PI_PASSWORD" ] && { [ -n "$DATAPLICITY_TOKEN" ] || [ -n "$SOCKETXP_AUTH_TOKEN" ]; }; then
             echo "Encrypting remote access secrets..."
             
-            # Create secrets file
-            cat > /tmp/secrets.env << EOF
-          # Remote access tokens - decrypted on first boot
-          DATAPLICITY_TOKEN="${DATAPLICITY_TOKEN}"
-          SOCKETXP_AUTH_TOKEN="${SOCKETXP_AUTH_TOKEN}"
-          EOF
+            # Create secrets file using printf.
+            printf '# Remote access tokens - decrypted on first boot\nDATAPLICITY_TOKEN="%s"\nSOCKETXP_AUTH_TOKEN="%s"\n' \
+              "$DATAPLICITY_TOKEN" \
+              "$SOCKETXP_AUTH_TOKEN" \
+              > /tmp/secrets.env
             
-            # Derive encryption key from password hash
+            # Derive encryption key from password hash.
             PASSPHRASE=$(echo -n "${{ env.PASSWORD_HASH }}" | sha256sum | cut -d' ' -f1 | cut -c1-32)
             
-            # Encrypt secrets file
+            # Encrypt secrets file.
             echo "$PASSPHRASE" | openssl enc -aes-256-cbc -pbkdf2 -in /tmp/secrets.env -out /tmp/orcanode-secrets.enc -pass stdin
             
-            # Copy encrypted file to image
+            # Copy encrypted file to image.
             sudo mkdir -p /mnt/usr/local/etc
             sudo cp /tmp/orcanode-secrets.enc /mnt/usr/local/etc/orcanode-secrets.enc
             sudo chmod 600 /mnt/usr/local/etc/orcanode-secrets.enc
             
-            # Clean up
+            # Clean up.
             shred -u /tmp/secrets.env 2>/dev/null || rm -f /tmp/secrets.env
             rm -f /tmp/orcanode-secrets.enc
             
@@ -145,19 +144,15 @@ jobs:
 
       - name: Configure secret decryption on first boot
         run: |
-          # Copy decryption script
+          # Copy decryption script.
           sudo cp sd-image-files/install-secrets.sh /mnt/usr/local/sbin/install-secrets.sh
           sudo chmod 755 /mnt/usr/local/sbin/install-secrets.sh
           
-          # Copy and enable systemd service
+          # Copy and enable systemd service.
           sudo cp sd-image-files/install-secrets.service /mnt/etc/systemd/system/install-secrets.service
           sudo systemctl --root=/mnt enable install-secrets.service
           
           echo "Secret decryption configured for first boot"
-
-      # REMOVE these old steps - no longer needed:
-      # - name: Configure Dataplicity agent install on first boot
-      # - name: Configure SocketXP installation on first boot
 
       - name: Clean machine-id for unique first boot
         run: |
@@ -235,7 +230,7 @@ jobs:
         run: |
           gzip raspios-orcanode.img
           
-          # Add version info to filename
+          # Add version info to filename.
           if [ "${{ github.ref_type }}" == "tag" ]; then
             VERSION="${{ github.ref_name }}"
           else

@@ -3,7 +3,7 @@
 
 set -e
 
-cd /home/pi/orcanode
+cd /home/pi/orcanode/node
 
 echo "======================================"
 echo "  Orcanode Update Utility"

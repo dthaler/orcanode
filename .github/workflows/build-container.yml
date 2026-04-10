@@ -23,7 +23,7 @@ jobs:
         run: |
           docker build -t orcanode:test ./node
           # Run your test suite here
-          docker run --rm orcanode:test npm test || true
+          docker run --rm orcanode:test npm test
   
   build-and-push:
     needs: test
