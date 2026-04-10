@@ -1,0 +1,73 @@
+name: Deploy to Orcanode Fleet
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deployment target'
+        required: true
+        type: choice
+        options:
+          - canary
+          - production
+          - all
+      image_tag:
+        description: 'Container image tag to deploy (default: latest)'
+        required: false
+        default: 'latest'
+
+jobs:
+  deploy-canary:
+    if: inputs.target == 'canary' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to canary Pi
+        env:
+          CANARY_HOST: ${{ secrets.CANARY_PI_HOST }}
+          SSH_KEY: ${{ secrets.FLEET_SSH_KEY }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          echo "$SSH_KEY" > /tmp/ssh_key
+          chmod 600 /tmp/ssh_key
+          
+          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@$CANARY_HOST << 'EOF'
+            cd ~/orcanode
+            export IMAGE_TAG="${IMAGE_TAG}"
+            docker compose pull
+            docker compose up -d
+            docker compose ps
+          EOF
+      
+      - name: Wait for canary health check
+        run: |
+          echo "Waiting 5 minutes for canary to stabilize..."
+          sleep 300
+          # Add health check logic here
+  
+  deploy-production:
+    if: inputs.target == 'production' || inputs.target == 'all'
+    needs: deploy-canary
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # List your production Pi hostnames/IPs
+        host: 
+          - prod-pi-1
+          - prod-pi-2
+          - prod-pi-3
+    steps:
+      - name: Deploy to ${{ matrix.host }}
+        env:
+          SSH_KEY: ${{ secrets.FLEET_SSH_KEY }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          echo "$SSH_KEY" > /tmp/ssh_key
+          chmod 600 /tmp/ssh_key
+          
+          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@${{ secrets[format('PI_HOST_{0}', matrix.host)] }} << 'EOF'
+            cd ~/orcanode
+            export IMAGE_TAG="${IMAGE_TAG}"
+            docker compose pull
+            docker compose up -d
+            echo "Deployed to $(hostname)"
+          EOF

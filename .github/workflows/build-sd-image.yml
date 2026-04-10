@@ -107,12 +107,25 @@ jobs:
             echo "Password set for pi user"
           fi
 
-      - name: Clone orcanode repository into image
+      - name: Configure orcanode installation on first boot
         run: |
-          sudo mkdir -p /mnt/home/pi
-          sudo git clone https://github.com/orcasound/orcanode /mnt/home/pi/orcanode
-          sudo chown -R 1000:1000 /mnt/home/pi/orcanode
-          echo "Orcanode repository cloned"
+          # Copy first-boot installation script.
+          sudo cp sd-image-files/install-orcanode.sh /mnt/usr/local/sbin/install-orcanode.sh
+          sudo chmod 755 /mnt/usr/local/sbin/install-orcanode.sh
+          
+          # Copy and enable systemd service.
+          sudo cp sd-image-files/install-orcanode.service /mnt/etc/systemd/system/install-orcanode.service
+          sudo systemctl --root=/mnt enable install-orcanode.service
+          
+          echo "Orcanode first-boot install configured"
+
+      - name: Add manual update helper script
+        run: |
+          # Copy update helper script.
+          sudo cp sd-image-files/orcanode-update.sh /mnt/usr/local/bin/orcanode-update
+          sudo chmod 755 /mnt/usr/local/bin/orcanode-update
+          
+          echo "Manual update helper script installed"
 
       - name: Install Docker (armhf Bookworm)
         run: |
