@@ -56,7 +56,8 @@ What the workflow does:
      gzip -d raspios-orcanode.img.gz
      sudo dd if=raspios-orcanode.img of=/dev/sdX bs=4M status=progress conv=fsync
      ```
-     Replace `/dev/sdX` with the correct device for your SD card.
+     Replace `/dev/sdX` with the correct device for your SD card, where the
+     device name can be identified by running `lsblk`.
 
 ### 3 — First boot
 

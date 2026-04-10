@@ -3,12 +3,16 @@ name: Build SD Card Image
 on:
   workflow_dispatch:
   pull_request:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # Required for creating releases
+      packages: read
 
     steps:
       - name: Checkout repository
@@ -281,12 +285,51 @@ jobs:
       - name: Compress image
         run: |
           gzip raspios-orcanode.img
-          ls -lh raspios-orcanode.img.gz
+          
+          # Add version info to filename
+          if [ "${{ github.ref_type }}" == "tag" ]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="dev-$(date +%Y%m%d)-${GITHUB_SHA:0:7}"
+          fi
+          
+          mv raspios-orcanode.img.gz raspios-orcanode-${VERSION}.img.gz
+          ls -lh raspios-orcanode-${VERSION}.img.gz
+          echo "IMAGE_FILE=raspios-orcanode-${VERSION}.img.gz" >> $GITHUB_ENV
 
-      - name: Upload SD card image as GitHub artifact
+      - name: Generate checksums
+        run: |
+          sha256sum ${{ env.IMAGE_FILE }} > ${{ env.IMAGE_FILE }}.sha256
+          cat ${{ env.IMAGE_FILE }}.sha256
+
+      - name: Upload to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ env.IMAGE_FILE }}
+            ${{ env.IMAGE_FILE }}.sha256
+          body: |
+            ## Orcanode SD Card Image ${{ github.ref_name }}
+            
+            ### Installation
+            1. Download `${{ env.IMAGE_FILE }}`
+            2. Verify checksum: `sha256sum -c ${{ env.IMAGE_FILE }}.sha256`
+            3. Flash to SD card with Raspberry Pi Imager or Etcher
+            4. See [setup guide](sd-image-files/README.md) for configuration
+            
+            ### What's New
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+            
+            ### Container Version
+            This image pulls: `ghcr.io/orcasound/orcanode/orcanode:${{ github.ref_name }}`
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
+
+      - name: Upload artifact for testing (PR/dev builds)
+        if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v4
         with:
-          name: raspios-orcanode
-          path: raspios-orcanode.img.gz
-          retention-days: 1
-          if-no-files-found: error
+          name: raspios-orcanode-dev
+          path: ${{ env.IMAGE_FILE }}
+          retention-days: 7

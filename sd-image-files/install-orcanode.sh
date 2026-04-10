@@ -19,6 +19,7 @@ if [ -f docker-compose.yml ]; then
 fi
 
 # Create docker-compose.yml that pulls from registry
+# IMAGE_TAG defaults to 'latest' for automatic updates
 cat > docker-compose.yml << 'COMPOSE'
 version: '3.8'
 
