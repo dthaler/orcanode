@@ -25,6 +25,10 @@ ever reflashing an SD card.
 | `DATAPLICITY_TOKEN` | Token from the Dataplicity dashboard. Encrypted into the image at build time; decrypted and used to register the device on first boot. If not set, Dataplicity is not configured. |
 | `SOCKETXP_AUTH_TOKEN` | Auth token for SocketXP remote-access tunnel. Encrypted into the image at build time; decrypted and used to connect the device on first boot. Also used by `deploy-fleet.yml` at deploy time. If not set, SocketXP is not configured. |
 
+**Note:** Logging credentials (`SYSLOG_URL`, `SYSLOG_STRUCTURED_DATA`) are **not**
+GitHub secrets and are **not** encrypted into the image. They must be configured
+in `/home/pi/orcanode/node/.env` on each Pi after first boot.
+
 ### Deployment secrets (used by `deploy-fleet.yml`)
 
 | Secret | Purpose |
@@ -93,7 +97,7 @@ What the workflow does:
    - Enables SSH by default (`/boot/ssh`).
    - Optionally sets the `pi` user password (`PI_PASSWORD` secret).
    - Installs Docker (CE, CLI, Compose plugin).
-   - Installs the Mezmo (LogDNA) logging agent.
+   - Configures logspout sidecar container for log shipping.
    - Encrypts remote access tokens (Dataplicity, SocketXP) using the pi user's password and embeds them in the image at `/usr/local/etc/orcanode-secrets.enc`.
    - Writes a first-boot script that decrypts and installs remote access agents.
    - Writes a first-boot script that clones the orcanode repository.
@@ -133,7 +137,7 @@ On first boot the following happens automatically:
 | Service | What it does |
 |---------|-------------|
 | Raspberry Pi OS resize | Expands the root partition to fill the entire SD card. |
-| `install-orcanode.service` | Clones `https://github.com/orcasound/orcanode` to `/home/pi/orcanode` and writes a `docker-compose.yml` that pulls the container image from GHCR. Runs only once (condition: `/home/pi/orcanode` does not exist). |
+| `install-orcanode.service` | Clones `https://github.com/orcasound/orcanode` to `/home/pi/orcanode` and writes a `docker-compose.yml` that pulls the container image from GHCR and configures a logspout sidecar for centralized logging. Runs only once (condition: `/home/pi/orcanode` does not exist). |
 | `install-secrets.service` | Decrypts `/usr/local/etc/orcanode-secrets.enc` using the pi user's password hash and installs Dataplicity and SocketXP if tokens are present. Runs only once. |
 | `cron` (`@reboot`) | After a 60-second delay, starts the orcanode container via `docker compose up -d`. |
 

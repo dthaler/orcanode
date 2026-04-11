@@ -172,6 +172,46 @@ jobs:
 
           echo "Helper scripts installed"
 
+      - name: Install Docker in chroot
+        run: |
+          echo "Installing Docker CE and Docker Compose plugin..."
+          
+          # Install prerequisites.
+          sudo chroot /mnt apt-get update
+          sudo chroot /mnt apt-get install -y --no-install-recommends \
+            ca-certificates \
+            curl \
+            gnupg \
+            lsb-release
+          
+          # Add Docker's official GPG key.
+          sudo mkdir -p /mnt/etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/debian/gpg | \
+            sudo chroot /mnt gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          
+          # Set up the Docker repository.
+          echo \
+            "deb [arch=armhf signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+            bookworm stable" | sudo tee /mnt/etc/apt/sources.list.d/docker.list > /dev/null
+          
+          # Install Docker Engine, CLI, and Compose plugin.
+          sudo chroot /mnt apt-get update
+          sudo chroot /mnt apt-get install -y --no-install-recommends \
+            docker-ce \
+            docker-ce-cli \
+            containerd.io \
+            docker-buildx-plugin \
+            docker-compose-plugin
+          
+          # Add pi user to docker group.
+          sudo chroot /mnt usermod -aG docker pi
+          
+          # Enable Docker service.
+          sudo systemctl --root=/mnt enable docker.service
+          sudo systemctl --root=/mnt enable containerd.service
+          
+          echo "Docker installed successfully"
+
       - name: Clean machine-id for unique first boot
         run: |
           sudo rm -f /mnt/etc/machine-id
