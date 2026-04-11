@@ -59,9 +59,8 @@ What the workflow does:
    - Optionally sets the `pi` user password (`PI_PASSWORD` secret).
    - Installs Docker (CE, CLI, Compose plugin).
    - Installs the Mezmo (LogDNA) logging agent.
-   - Installs SocketXP for remote access (`SOCKETXP_AUTH_TOKEN` secret).
-   - Writes a first-boot script for Dataplicity registration
-     (`DATAPLICITY_TOKEN` secret).
+   - Encrypts remote access tokens (Dataplicity, SocketXP) using the pi user's password and embeds them in the image at `/usr/local/etc/orcanode-secrets.enc`.
+   - Writes a first-boot script that decrypts and installs remote access agents.
    - Writes a first-boot script that clones the orcanode repository.
    - Installs the `orcanode-update` helper at `/usr/local/bin/orcanode-update`.
    - Configures a crontab for the `pi` user to start and daily-restart the
@@ -100,8 +99,7 @@ On first boot the following happens automatically:
 |---------|-------------|
 | Raspberry Pi OS resize | Expands the root partition to fill the entire SD card. |
 | `install-orcanode.service` | Clones `https://github.com/orcasound/orcanode` to `/home/pi/orcanode` and writes a `docker-compose.yml` that pulls the container image from GHCR. Runs only once (condition: `/home/pi/orcanode` does not exist). |
-| `install-dataplicity.service` | Runs `/usr/local/sbin/install-dataplicity.sh` to register the device with Dataplicity, then self-disables. Requires `DATAPLICITY_TOKEN` to have been set at build time. |
-| `install-socketxp.service` | Runs `/usr/local/sbin/install-socketxp.sh` to install and configure the SocketXP remote-access agent, then self-disables. Requires `SOCKETXP_AUTH_TOKEN` to have been set at build time. |
+| `install-secrets.service` | Decrypts `/usr/local/etc/orcanode-secrets.enc` using the pi user's password hash and installs Dataplicity and SocketXP if tokens are present. Runs only once. |
 | `cron` (`@reboot`) | After a 60-second delay, starts the orcanode container via `docker compose up -d`. |
 
 SSH is available immediately after boot on port 22 with user `pi` and the
@@ -171,9 +169,11 @@ Trigger the [deploy-fleet.yml](.github/workflows/deploy-fleet.yml) workflow
 via **Actions → Deploy to Orcanode Fleet → Run workflow**. Choose the target
 (`canary`, `production`, or `all`) and optionally specify an image tag.
 
-The workflow SSHes into each Pi and runs `docker compose pull && docker compose up -d`.
-The `canary` target runs first; `production` waits for it to stabilise before
-rolling out to all production Pis in parallel.
+The workflow deploys via SocketXP REST API to device groups (`canary` or `production`).
+The `canary` group deploys first; after a 5-minute health check, `production` group deploys.
+All devices in a group are updated simultaneously.
+
+**Note:** Devices must be assigned to SocketXP groups during first boot or manually:
 
 **Option C — Pin to a specific version**
 
@@ -260,7 +260,9 @@ Day 45: Critical bugfix needed
 | `raspi.list` | Raspberry Pi apt repository source written into the image during build. |
 | `install-orcanode.sh` | Script that clones the repository and sets up `docker-compose.yml` on first boot. |
 | `install-orcanode.service` | Systemd unit that runs `install-orcanode.sh` once on first boot. |
-| `install-dataplicity.service` | Systemd unit that runs the Dataplicity registration script once on first boot. |
-| `install-socketxp.sh` | Script that installs and configures the SocketXP remote-access agent on first boot. |
-| `install-socketxp.service` | Systemd unit that runs `install-socketxp.sh` once on first boot. |
+| `install-secrets.sh` | Script that decrypts remote access tokens and installs Dataplicity and SocketXP on first boot. |
+| `install-secrets.service` | Systemd unit that runs `install-secrets.sh` once on first boot. |
+| `create-secrets-file.sh` | Helper script to generate encrypted secrets file during image build. |
+| `deploy-update.sh` | Script used by fleet deployment workflow to update containers remotely. |
+| `socketxp-deploy.sh` | Script to deploy updates via SocketXP REST API to device groups. |
 | `orcanode-update.sh` | Helper script installed at `/usr/local/bin/orcanode-update` for manual container updates. |

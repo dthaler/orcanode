@@ -24,22 +24,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Deploy to canary Pi
+      - name: Deploy to canary group via SocketXP
         env:
-          CANARY_HOST: ${{ secrets.CANARY_PI_HOST }}
-          SSH_KEY: ${{ secrets.FLEET_SSH_KEY }}
+          SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          echo "$SSH_KEY" > /tmp/ssh_key
-          chmod 600 /tmp/ssh_key
-          
-          # Copy deployment script to Pi
-          scp -i /tmp/ssh_key -o StrictHostKeyChecking=no \
-            sd-image-files/deploy-update.sh pi@$CANARY_HOST:/tmp/deploy-update.sh
-          
-          # Execute deployment script
-          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@$CANARY_HOST \
-            "bash /tmp/deploy-update.sh '$IMAGE_TAG'"
+          bash sd-image-files/socketxp-deploy.sh \
+            "$SOCKETXP_AUTH_TOKEN" \
+            "canary" \
+            "$IMAGE_TAG"
       
       - name: Wait for canary health check
         run: |
@@ -51,30 +44,16 @@ jobs:
     if: inputs.target == 'production' || inputs.target == 'all'
     needs: deploy-canary
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # Use underscores to match GitHub secret naming rules
-        host: 
-          - prod_pi_1
-          - prod_pi_2
-          - prod_pi_3
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Deploy to ${{ matrix.host }}
+      - name: Deploy to production group via SocketXP
         env:
-          SSH_KEY: ${{ secrets.FLEET_SSH_KEY }}
+          SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-          PI_HOST: ${{ secrets[format('PI_HOST_{0}', matrix.host)] }}
         run: |
-          echo "$SSH_KEY" > /tmp/ssh_key
-          chmod 600 /tmp/ssh_key
-          
-          # Copy deployment script to Pi
-          scp -i /tmp/ssh_key -o StrictHostKeyChecking=no \
-            sd-image-files/deploy-update.sh pi@$PI_HOST:/tmp/deploy-update.sh
-          
-          # Execute deployment script
-          ssh -i /tmp/ssh_key -o StrictHostKeyChecking=no pi@$PI_HOST \
-            "bash /tmp/deploy-update.sh '$IMAGE_TAG'"
+          bash sd-image-files/socketxp-deploy.sh \
+            "$SOCKETXP_AUTH_TOKEN" \
+            "production" \
+            "$IMAGE_TAG"
