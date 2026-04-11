@@ -218,7 +218,7 @@ All devices in a group are updated simultaneously.
 After a device connects to SocketXP for the first time (on first boot), assign
 it to the appropriate group:
 
-1. Log in to [portal.socketxp.com](https://portal.socketxp.com).
+1. Log in to [https://portal.socketxp.com](https://portal.socketxp.com).
 2. Navigate to **Devices** and find the new device by its hostname.
 3. Click the device → **Edit** → set the **Group** field to `canary` or
    `production`.
