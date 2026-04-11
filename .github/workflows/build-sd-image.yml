@@ -154,6 +154,24 @@ jobs:
           
           echo "Secret decryption configured for first boot"
 
+      - name: Install first-boot and helper scripts
+        run: |
+          # Install orcanode first-boot script and service (clones repo on first boot).
+          sudo cp sd-image-files/install-orcanode.sh /mnt/usr/local/sbin/install-orcanode.sh
+          sudo chmod 755 /mnt/usr/local/sbin/install-orcanode.sh
+          sudo cp sd-image-files/install-orcanode.service /mnt/etc/systemd/system/install-orcanode.service
+          sudo systemctl --root=/mnt enable install-orcanode.service
+
+          # Install orcanode-update helper at /usr/local/bin/orcanode-update.
+          sudo cp sd-image-files/orcanode-update.sh /mnt/usr/local/bin/orcanode-update
+          sudo chmod 755 /mnt/usr/local/bin/orcanode-update
+
+          # Install rename-node helper at /usr/local/sbin/rename-node.
+          sudo cp sd-image-files/rename-node.sh /mnt/usr/local/sbin/rename-node
+          sudo chmod 755 /mnt/usr/local/sbin/rename-node
+
+          echo "Helper scripts installed"
+
       - name: Clean machine-id for unique first boot
         run: |
           sudo rm -f /mnt/etc/machine-id

@@ -319,3 +319,4 @@ Day 45: Critical bugfix needed
 | `install-secrets.service` | Systemd unit that runs `install-secrets.sh` once on first boot. |
 | `socketxp-deploy.sh` | Script to deploy updates via SocketXP REST API to device groups. |
 | `orcanode-update.sh` | Helper script installed at `/usr/local/bin/orcanode-update` for manual container updates. |
+| `rename-node.sh` | Helper script installed at `/usr/local/sbin/rename-node` to change the system hostname, update `NODE_NAME` in `.env`, and restart the container. Usage: `sudo rename-node <new_hostname>`. |
