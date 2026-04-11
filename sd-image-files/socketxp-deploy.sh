@@ -21,7 +21,7 @@ echo "Image tag: $IMAGE_TAG"
 echo ""
 
 # Construct deployment command
-DEPLOY_CMD="cd /home/pi/orcanode/node && IMAGE_TAG='$IMAGE_TAG' docker compose pull && docker compose up -d && docker compose ps"
+DEPLOY_CMD="cd /home/pi/orcanode/node && export IMAGE_TAG='$IMAGE_TAG' && docker compose pull && docker compose up -d && docker compose ps"
 
 # Execute command via SocketXP REST API on all devices in group
 echo "Executing deployment command on group '$GROUP'..."

@@ -54,8 +54,8 @@ repository:
 4. **First-boot decryption**: `install-secrets.service` runs
    `install-secrets.sh` which re-reads the pi user's password hash from
    `/etc/shadow`, re-derives the same key, decrypts the bundle to a temporary
-   file on tmpfs, registers the device with Dataplicity and SocketXP, then
-   securely shreds the decrypted file.
+   file, registers the device with Dataplicity and SocketXP, then removes the
+   decrypted file.
 
 ---
 
@@ -80,7 +80,7 @@ Admin triggers update:
 
 ### 1 — Build the SD card image
 
-The [build-sd-image.yml](.github/workflows/build-sd-image.yml) workflow runs
+The [build-sd-image.yml](../.github/workflows/build-sd-image.yml) workflow runs
 automatically on every pull request and can also be triggered manually via
 **Actions → Build SD Card Image → Run workflow**.
 
