@@ -26,8 +26,9 @@ ever reflashing an SD card.
 | `SOCKETXP_AUTH_TOKEN` | Auth token for SocketXP remote-access tunnel. Encrypted into the image at build time; decrypted and used to connect the device on first boot. Also used by `deploy-fleet.yml` at deploy time. If not set, SocketXP is not configured. |
 
 **Note:** Logging credentials (`SYSLOG_URL`, `SYSLOG_STRUCTURED_DATA`) are **not**
-GitHub secrets and are **not** encrypted into the image. They must be configured
-in `/home/pi/orcanode/node/.env` on each Pi after first boot.
+build-time secrets. They are runtime environment variables read by the logspout
+sidecar container and must be set in `/home/pi/orcanode/node/.env` on each Pi
+after first boot (see [Configure the node](#4--configure-the-node) below).
 
 ### Deployment secrets (used by `deploy-fleet.yml`)
 
@@ -157,6 +158,9 @@ CHANNELS=1
 SAMPLE_RATE=48000
 AWSACCESSKEYID=...
 AWSSECRETACCESSKEY=...
+# Logging — read at runtime by the logspout sidecar container:
+SYSLOG_URL=udp://logs.example.com:514
+SYSLOG_STRUCTURED_DATA=...
 ```
 
 Restart the container after creating the file:
