@@ -17,11 +17,45 @@ ever reflashing an SD card.
 
 ## Required GitHub Secrets
 
+### Build-time secrets (used by `build-sd-image.yml`)
+
 | Secret | Purpose |
 |--------|---------|
-| `PI_PASSWORD` | Default password for the `pi` account. If not set the factory default password is left unchanged. |
-| `DATAPLICITY_TOKEN` | Token from the Dataplicity dashboard used to register the device on first boot. If not set, Dataplicity is not configured. |
-| `SOCKETXP_AUTH_TOKEN` | Auth token for SocketXP remote-access tunnel. If not set, the SocketXP install step is skipped. |
+| `PI_PASSWORD` | Password for the `pi` account. Used both to log in to the Pi and as the encryption key for the token bundle. If not set, the factory default password is unchanged and token encryption is skipped. |
+| `DATAPLICITY_TOKEN` | Token from the Dataplicity dashboard. Encrypted into the image at build time; decrypted and used to register the device on first boot. If not set, Dataplicity is not configured. |
+| `SOCKETXP_AUTH_TOKEN` | Auth token for SocketXP remote-access tunnel. Encrypted into the image at build time; decrypted and used to connect the device on first boot. Also used by `deploy-fleet.yml` at deploy time. If not set, SocketXP is not configured. |
+
+### Deployment secrets (used by `deploy-fleet.yml`)
+
+| Secret | Purpose |
+|--------|---------|
+| `SOCKETXP_AUTH_TOKEN` | Same token as above — reused at deploy time to authenticate SocketXP REST API calls that send deployment commands to device groups. |
+
+---
+
+## Security Architecture
+
+Sensitive tokens are never stored in plain text in the image artifact or the
+repository:
+
+1. **GitHub secrets (at rest)**: `PI_PASSWORD`, `DATAPLICITY_TOKEN`, and
+   `SOCKETXP_AUTH_TOKEN` are stored as GitHub Actions secrets, encrypted by
+   GitHub at rest.
+2. **Image-time encryption**: During the build the workflow combines
+   `DATAPLICITY_TOKEN` and `SOCKETXP_AUTH_TOKEN` into a secrets file and
+   encrypts it with AES-256-CBC (OpenSSL `pbkdf2`). The encryption key is
+   derived from the SHA-256 of the pi user's password hash, so only someone
+   who knows `PI_PASSWORD` can decrypt it. The plain-text secrets file is
+   shredded immediately after encryption.
+3. **Storage in image**: Only the encrypted bundle
+   (`/usr/local/etc/orcanode-secrets.enc`) is written into the SD card image.
+   The image artifact (GitHub Release or dev artifact) contains **no
+   plain-text tokens**.
+4. **First-boot decryption**: `install-secrets.service` runs
+   `install-secrets.sh` which re-reads the pi user's password hash from
+   `/etc/shadow`, re-derives the same key, decrypts the bundle to a temporary
+   file on tmpfs, registers the device with Dataplicity and SocketXP, then
+   securely shreds the decrypted file.
 
 ---
 
@@ -35,8 +69,9 @@ Developer pushes code → build-container.yml runs
                       → Pushes ghcr.io/.../orcanode:latest
 
 Admin triggers update:
-  → docker compose pull   (downloads new :latest)
-  → docker compose up -d  (restarts with new image)
+  → Via SocketXP API: `deploy-fleet.yml` sends `docker compose pull && up -d`
+    to all devices in a group simultaneously
+  → Or manually: SSH to Pi, run `orcanode-update`
 ```
 
 ---
@@ -140,6 +175,9 @@ The [build-container.yml](.github/workflows/build-container.yml) workflow runs
 automatically whenever code in `node/` or `Dockerfile` is pushed to `main`.
 It builds a multi-arch image (`amd64`, `arm/v7`, `arm64`) and pushes it to
 GHCR with the `latest` tag (plus a `main-<sha>` tag for traceability).
+When a version tag (`v*.*.*`) is pushed, the workflow additionally creates
+semver-tagged images in GHCR (e.g. `v1.2.3`, `v1.2`, `v1`) so Pis can be
+pinned to a specific release.
 
 ### Step 2 — Deploy to Pis
 
@@ -173,7 +211,24 @@ The workflow deploys via SocketXP REST API to device groups (`canary` or `produc
 The `canary` group deploys first; after a 5-minute health check, `production` group deploys.
 All devices in a group are updated simultaneously.
 
-**Note:** Devices must be assigned to SocketXP groups during first boot or manually:
+**Note:** Devices must be assigned to SocketXP groups during first boot or manually.
+
+#### Assigning devices to SocketXP groups
+
+After a device connects to SocketXP for the first time (on first boot), assign
+it to the appropriate group:
+
+1. Log in to [portal.socketxp.com](https://portal.socketxp.com).
+2. Navigate to **Devices** and find the new device by its hostname.
+3. Click the device → **Edit** → set the **Group** field to `canary` or
+   `production`.
+4. Click **Save**.
+
+Alternatively, use the SocketXP CLI (`socketxp device group set`) or REST API
+to assign devices in bulk.
+
+The `deploy-fleet.yml` workflow targets these groups by name via
+`socketxp-deploy.sh` (SocketXP REST API group-exec endpoint).
 
 **Option C — Pin to a specific version**
 
@@ -240,7 +295,7 @@ Day 5 (10 min later): Admin triggers deploy-fleet.yml → all: latest
         └─ All Pis pull new :latest and restart  (NO SD card reflash!)
 
 Day 30: OS security updates available
-        └─ Admin triggers build-sd-image.yml → creates updated SD image
+        └─ Developer tags v1.1.0 → build-sd-image.yml creates updated SD image
         └─ New deployments use the updated image
         └─ Existing Pis keep running (optional: reflash during maintenance)
 
@@ -262,7 +317,5 @@ Day 45: Critical bugfix needed
 | `install-orcanode.service` | Systemd unit that runs `install-orcanode.sh` once on first boot. |
 | `install-secrets.sh` | Script that decrypts remote access tokens and installs Dataplicity and SocketXP on first boot. |
 | `install-secrets.service` | Systemd unit that runs `install-secrets.sh` once on first boot. |
-| `create-secrets-file.sh` | Helper script to generate encrypted secrets file during image build. |
-| `deploy-update.sh` | Script used by fleet deployment workflow to update containers remotely. |
 | `socketxp-deploy.sh` | Script to deploy updates via SocketXP REST API to device groups. |
 | `orcanode-update.sh` | Helper script installed at `/usr/local/bin/orcanode-update` for manual container updates. |
