@@ -4,7 +4,7 @@
 
 set -e
 
-IMAGE_TAG="${1:-latest}"
+export IMAGE_TAG="${1:-latest}"
 
 cd /home/pi/orcanode/node
 

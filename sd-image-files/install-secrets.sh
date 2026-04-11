@@ -35,7 +35,7 @@ source "$DECRYPTED_FILE"
 # Install Dataplicity if token is present
 if [ -n "$DATAPLICITY_TOKEN" ]; then
     echo "Installing Dataplicity..."
-    curl -s "https://www.dataplicity.com/${DATAPLICITY_TOKEN}.py" | python3 \
+    curl -fsSL "https://www.dataplicity.com/${DATAPLICITY_TOKEN}.py" | python3 \
         && echo "Dataplicity installed successfully" \
         || echo "Warning: Dataplicity installation failed"
 fi

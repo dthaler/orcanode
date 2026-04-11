@@ -11,7 +11,12 @@ echo "======================================"
 echo ""
 
 # Get current version
-CURRENT_TAG=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' orcanode-orcanode-1 2>/dev/null || echo "unknown")
+CONTAINER_ID=$(docker compose ps -q orcanode 2>/dev/null || true)
+if [ -n "$CONTAINER_ID" ]; then
+    CURRENT_TAG=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' "$CONTAINER_ID" 2>/dev/null || echo "unknown")
+else
+    CURRENT_TAG="unknown"
+fi
 echo "Current version: $CURRENT_TAG"
 echo ""
 
