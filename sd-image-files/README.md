@@ -108,7 +108,7 @@ What the workflow does:
 4. Cleans the machine-id so each flashed card gets a unique identity on boot.
 5. Compresses the image and:
    - For **pull request / dev builds**: uploads it as the `raspios-orcanode-dev`
-     artifact (retained for **7 days**).
+     artifact (retained for **1 day**).
    - For **tagged releases** (`v*.*.*`): publishes a GitHub Release with the
      compressed image attached permanently.
 
