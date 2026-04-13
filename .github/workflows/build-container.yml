@@ -20,24 +20,26 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Build and test on x86_64
+      - name: Build container image
+        run: docker build -t orcanode:test ./node
+
+      - name: Verify Python is available
+        run: docker run --rm orcanode:test python3 --version
+
+      - name: Verify FFmpeg is installed
+        run: docker run --rm orcanode:test ffmpeg -version
+
+      - name: Verify Jack audio is installed
+        run: docker run --rm orcanode:test which jackd
+
+      - name: Verify Python dependencies
+        run: docker run --rm orcanode:test python3 -c "import boto3; import inotify; print('Python deps OK')"
+
+      - name: Verify application scripts are present
+        run: docker run --rm orcanode:test ls -la /app/stream.sh
+
+      - name: Test container startup
         run: |
-          docker build -t orcanode:test ./node
-
-          # Test 1: Verify Python is available.
-          docker run --rm orcanode:test python3 --version
-
-          # Test 2: Verify required dependencies are installed.
-          docker run --rm orcanode:test ffmpeg -version
-          docker run --rm orcanode:test which jackd
-
-          # Test 3: Verify Python packages are installed.
-          docker run --rm orcanode:test python3 -c "import boto3; import inotify; print('Python deps OK')"
-
-          # Test 4: Verify scripts are executable and present.
-          docker run --rm orcanode:test ls -la /app/stream.sh
-
-          # Test 5: Test that the container starts (run for 5 seconds then stop).
           docker run -d --name orcanode-test orcanode:test
           sleep 5
           docker logs orcanode-test
