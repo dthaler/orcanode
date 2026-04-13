@@ -1,11 +1,11 @@
 # Node Dockerfile for hydrophone streaming
 # Multi-arch self-contained build for CI/CD deployment
 
-FROM python:3.9-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 LABEL org.opencontainers.image.source="https://github.com/orcasound/orcanode"
 LABEL org.opencontainers.image.description="Orcasound hydrophone streaming node"
-LABEL maintainer="Orcasound <orcanode-devs@orcasound.net>"
+LABEL org.opencontainers.image.authors="Orcasound <orcanode-devs@orcasound.net>"
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
