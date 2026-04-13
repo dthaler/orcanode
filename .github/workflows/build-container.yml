@@ -50,6 +50,9 @@ jobs:
           sed -i 's/key="FILLTHISIN"/key="test-logdna-key"/g' test.env
           sed -i 's/NODE_NAME=rpi_location/NODE_NAME=rpi_github_ci/g' test.env
 
+          # Disable loopback testing since CI environments won't have audio hardware.
+          sed -i 's/NODE_LOOPBACK=true/NODE_LOOPBACK=false/g' test.env
+
           # Start container with env file.
           docker run -d --name orcanode-test \
             --env-file test.env \
