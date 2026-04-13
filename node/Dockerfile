@@ -1,14 +1,13 @@
 # Node Dockerfile for hydrophone streaming
 # Multi-arch self-contained build for CI/CD deployment
 
-ARG BASE_IMAGE=python:3.11-slim-bookworm
-FROM ${BASE_IMAGE}
+FROM python:3.11-slim-bookworm
 
 LABEL org.opencontainers.image.source="https://github.com/orcasound/orcanode"
 LABEL org.opencontainers.image.description="Orcasound hydrophone streaming node"
 LABEL org.opencontainers.image.authors="Orcasound <orcanode-devs@orcasound.net>"
 
-# Install system dependencies (only if using Python base, skip if using orcabase)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     jack-capture \
@@ -24,9 +23,15 @@ RUN pip3 install --no-cache-dir \
     boto3 \
     inotify
 
-# Copy application files
+# Set working directory
 WORKDIR /app
-COPY . .
+
+# Copy node application files first
+COPY node/ ./
+
+# Copy Python upload scripts from base directory (overwrites if they exist in node/)
+COPY base/upload_s3.py ./
+COPY base/upload_flac_s3.py ./
 
 # Set environment defaults
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -36,6 +41,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Make scripts executable
 RUN chmod +x *.sh
+
+# Ensure .env.example is available for reference
+RUN if [ -f .env.example ]; then \
+        echo ".env.example is available at /app/.env.example"; \
+    else \
+        echo "Warning: .env.example not found"; \
+    fi
 
 # Run the streaming script
 CMD ["./stream.sh"]
