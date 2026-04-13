@@ -80,12 +80,13 @@ jobs:
 
       - name: Fix Raspberry Pi OS apt sources (force Bookworm armhf)
         run: |
-          # Remove ALL Raspberry Pi OS repo files (some contain Trixie).
-          sudo rm -f /mnt/etc/apt/sources.list.d/raspi.list*
-          sudo rm -f /mnt/etc/apt/sources.list.d/*.distUpgrade || true
+          # Remove ALL apt source files — both legacy one-line-per-entry (.list) and
+          # DEB822 format (.sources) — so that no Trixie or other unintended repos remain.
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.list  || true
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.sources || true
           sudo rm -f /mnt/etc/apt/sources.list.d/*.save || true
 
-          # Install your known-good Bookworm sources.
+          # Install known-good Bookworm-only sources.
           sudo cp sd-image-files/sources.list /mnt/etc/apt/sources.list
           sudo cp sd-image-files/raspi.list /mnt/etc/apt/sources.list.d/raspi.list
 
