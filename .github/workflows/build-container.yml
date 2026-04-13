@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - 'node/**'
+      - 'base/**'
       - '.github/workflows/build-container.yml'
     tags:
       - 'v*.*.*'  # Trigger on version tags.
   pull_request:
     paths:
       - 'node/**'
+      - 'base/**'
       - '.github/workflows/build-container.yml'
   workflow_dispatch:
 
@@ -61,11 +63,18 @@ jobs:
           echo "=== Container logs ==="
           docker logs orcanode-test
 
-          # Check if container is still attempting to run.
-          if docker ps -a | grep orcanode-test | grep -qE 'Up|Exited'; then
-            echo "Container started (audio hardware errors expected in CI)"
+          # Check container health: accept running or cleanly exited (exit code 0)
+          STATUS=$(docker inspect --format='{{.State.Status}}' orcanode-test)
+          EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' orcanode-test)
+          
+          echo "Container status: $STATUS, exit code: $EXIT_CODE"
+          
+          if [ "$STATUS" = "running" ]; then
+            echo "Container is running (audio hardware errors expected in CI)"
+          elif [ "$STATUS" = "exited" ] && [ "$EXIT_CODE" = "0" ]; then
+            echo "Container exited cleanly (exit code 0)"
           else
-            echo "Container failed to start"
+            echo "Container failed with status: $STATUS, exit code: $EXIT_CODE"
             exit 1
           fi
 

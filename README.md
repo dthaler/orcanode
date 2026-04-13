@@ -46,7 +46,7 @@ LC_ALL=C.UTF-8
 AWS_ACCESS_KEY_ID=YourAWSaccessKeyId
 AWS_SECRET_ACCESS_KEY=YourAWSsecretAccessKey
 
-SYSLOG_URL=syslog+tls://syslog-a.logdna.com:YourLogDNAPort
+SYSLOG_URL=syslog://syslog-a.logdna.com:YourLogDNAPort
 SYSLOG_STRUCTURED_DATA='logdna@YourLogDNAnumber key="YourLogDNAKey" tag="docker"'
 ```
 
