@@ -8,7 +8,8 @@ LABEL org.opencontainers.image.description="Orcasound hydrophone streaming node"
 LABEL org.opencontainers.image.authors="Orcasound <orcanode-devs@orcasound.net>"
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     jack-capture \
     jackd2 \
@@ -34,8 +35,7 @@ COPY base/upload_s3.py ./
 COPY base/upload_flac_s3.py ./
 
 # Set environment defaults
-ENV DEBIAN_FRONTEND=noninteractive \
-    SAMPLE_RATE=48000 \
+ENV SAMPLE_RATE=48000 \
     CHANNELS=1 \
     NODE_TYPE=hls-only
 

@@ -40,22 +40,26 @@ jobs:
 
       - name: Test container startup
         run: |
-          # Start container with minimal env vars for testing
+          # Copy .env.example to test.env and customize for CI.
+          cp node/.env.example test.env
+
+          # Replace FILLTHISIN placeholders with test values.
+          sed -i 's/AWSSECRETACCESSKEY=FILLTHISIN/AWSSECRETACCESSKEY=test-key/g' test.env
+          sed -i 's/AWS_ACCESS_KEY_ID=FILLTHISIN/AWS_ACCESS_KEY_ID=test-key-id/g' test.env
+          sed -i 's/AWS_SECRET_ACCESS_KEY=FILLTHISIN/AWS_SECRET_ACCESS_KEY=test-secret/g' test.env
+          sed -i 's/key="FILLTHISIN"/key="test-logdna-key"/g' test.env
+          sed -i 's/NODE_NAME=rpi_location/NODE_NAME=rpi_github_ci/g' test.env
+
+          # Start container with env file.
           docker run -d --name orcanode-test \
-            -e NODE_NAME=test-node \
-            -e NODE_TYPE=hls-only \
-            -e AUDIO_HW_ID=default \
-            -e SAMPLE_RATE=48000 \
-            -e CHANNELS=1 \
-            -e SEGMENT_DURATION=10 \
-            -e STREAM_RATE=48000 \
+            --env-file test.env \
             orcanode:test || true
 
           sleep 5
           echo "=== Container logs ==="
           docker logs orcanode-test
 
-          # Check if container is still attempting to run (even if Jack/ALSA fails)
+          # Check if container is still attempting to run.
           if docker ps -a | grep orcanode-test | grep -qE 'Up|Exited'; then
             echo "Container started (audio hardware errors expected in CI)"
           else
@@ -65,6 +69,7 @@ jobs:
 
           docker stop orcanode-test || true
           docker rm orcanode-test
+          rm test.env
 
   build-and-push:
     needs: test
