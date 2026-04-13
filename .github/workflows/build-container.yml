@@ -23,8 +23,8 @@ jobs:
       - name: Build and test on x86_64
         run: |
           docker build -t orcanode:test ./node
-          # Run your test suite here
-          docker run --rm orcanode:test npm test || true
+          # Add Python-based tests here when available
+          docker run --rm orcanode:test python3 --version
   
   build-and-push:
     needs: test
