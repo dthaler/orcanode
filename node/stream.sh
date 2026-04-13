@@ -45,16 +45,18 @@ fi
 if nice -n -1 true 2>/dev/null; then
     NICE_HIGH="nice -n -10"
     NICE_MED="nice -n -7"
+    JACKD_RT="-P 75"
 else
     echo "Note: cannot set elevated process priority (CAP_SYS_NICE not available); running at default priority"
     NICE_HIGH=""
     NICE_MED=""
+    JACKD_RT=""
 fi
 
 #  Setup jack 
 echo @audio - memlock 256000 >> /etc/security/limits.conf
 echo @audio - rtprio 75 >> /etc/security/limits.conf
-JACK_NO_AUDIO_RESERVATION=1 jackd -t 2000 -d alsa -d hw:$AUDIO_HW_ID -r $SAMPLE_RATE -p 1024 -n 10 -s &
+JACK_NO_AUDIO_RESERVATION=1 jackd -t 2000 $JACKD_RT -d alsa -d hw:$AUDIO_HW_ID -r $SAMPLE_RATE -p 1024 -n 10 -s &
 
 #### Generate stream segments and manifests, and/or lossless archive
 
