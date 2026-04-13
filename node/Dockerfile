@@ -1,8 +1,9 @@
 # Node Dockerfile for hydrophone streaming
 # use base image for project
 
-FROM orcastream/orcabase:latest
-MAINTAINER Orcasound <orcanode-devs@orcasound.net>
+ARG BASE_IMAGE=orcastream/orcabase:latest
+FROM ${BASE_IMAGE}
+LABEL maintainer="Orcasound <orcanode-devs@orcasound.net>"
 
 ###### hack to get ffmpeg to build
 # RUN apt-get update && apt-get install -y --no-install-recommends libraspberrypi-dev raspberrypi-kernel-headers
