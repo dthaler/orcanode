@@ -36,6 +36,7 @@ COPY base/upload_flac_s3.py ./
 
 # Set environment defaults
 ENV SAMPLE_RATE=48000 \
+    STREAM_RATE=48000 \
     CHANNELS=1 \
     NODE_TYPE=hls-only
 

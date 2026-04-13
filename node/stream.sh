@@ -27,7 +27,12 @@ mkdir -p /tmp/$NODE_NAME/hls/$timestamp
 # Output timestamp for this (latest) stream
 echo $timestamp > /tmp/$NODE_NAME/latest.txt
 
-STREAM_RATE=48000
+if [ -z "${STREAM_RATE}" ]; then
+    echo "setting stream rate to 48000"
+    STREAM_RATE=48000
+else
+    echo "stream rate is set to $STREAM_RATE"
+fi
 
 if [ -z "${SAMPLE_RATE}" ]; then
     echo "setting sampling rate to 48000"
@@ -36,10 +41,20 @@ else
     echo "sample rate is set to $SAMPLE_RATE";
 fi
 
+# Check if we can set process priority (requires CAP_SYS_NICE)
+if nice -n -1 true 2>/dev/null; then
+    NICE_HIGH="nice -n -10"
+    NICE_MED="nice -n -7"
+else
+    echo "Note: cannot set elevated process priority (CAP_SYS_NICE not available); running at default priority"
+    NICE_HIGH=""
+    NICE_MED=""
+fi
+
 #  Setup jack 
 echo @audio - memlock 256000 >> /etc/security/limits.conf
-echo @audio - rtprio 75 >> /etc/security/limits.co
-JACK_NO_AUDIO_RESERVATION=1 jackd -t 2000 -P 75 -d alsa -d hw:$AUDIO_HW_ID -r $SAMPLE_RATE -p 1024 -n 10 -s &
+echo @audio - rtprio 75 >> /etc/security/limits.conf
+JACK_NO_AUDIO_RESERVATION=1 jackd -t 2000 -d alsa -d hw:$AUDIO_HW_ID -r $SAMPLE_RATE -p 1024 -n 10 -s &
 
 #### Generate stream segments and manifests, and/or lossless archive
 
@@ -56,7 +71,7 @@ if [ "$NODE_TYPE" = "research" ]; then
 	echo "Sampling $CHANNELS channels from $AUDIO_HW_ID at $SAMPLE_RATE Hz with bitrate of 32 bits/sample..."
 	echo "Asking ffmpeg to write $FLAC_DURATION second $SAMPLE_RATE Hz FLAC files..." 
 	## Streaming HLS with FLAC archive 
-	nice -n -10 ffmpeg -f jack -i ffjack \
+	$NICE_HIGH ffmpeg -f jack -i ffjack \
        -f segment -segment_time "00:00:$FLAC_DURATION.00" -strftime 1 "/tmp/$NODE_NAME/flac/%Y-%m-%d_%H-%M-%S_$NODE_NAME-$SAMPLE_RATE-$CHANNELS.flac" \
        -f segment -segment_list "/tmp/$NODE_NAME/hls/$timestamp/live.m3u8" -segment_list_flags +live -segment_time $SEGMENT_DURATION -segment_format \
        mpegts -ar $STREAM_RATE -ac 2 -acodec aac "/tmp/$NODE_NAME/hls/$timestamp/live%03d.ts" >/dev/null 2>/dev/null &
@@ -64,22 +79,22 @@ elif [ "$NODE_TYPE" = "debug" ]; then
 	echo "Sampling $CHANNELS channels from $AUDIO_HW_ID at $SAMPLE_RATE Hz with bitrate of 32 bits/sample..."
         echo "Asking ffmpeg to stream DASH via mpegts at $STREAM_RATE Hz..." 
   	## Streaming DASH only via mpegts
-  	nice -n -10 ffmpeg -t 0 -f jack -i ffjack -f mpegts udp://127.0.0.1:1234 &
+  	$NICE_HIGH ffmpeg -t 0 -f jack -i ffjack -f mpegts udp://127.0.0.1:1234 &
   	#### Stream with test engine live tools
 	## May need to adjust segment length in config_audio.json to match $SEGMENT_DURATION...
-  	nice -n -7 ./test-engine-live-tools/bin/live-stream -c ./config_audio.json udp://127.0.0.1:1234 &
+  	$NICE_MED ./test-engine-live-tools/bin/live-stream -c ./config_audio.json udp://127.0.0.1:1234 &
 elif [ "$NODE_TYPE" = "hls-only" ]; then
 	echo "Sampling $CHANNELS channels from $AUDIO_HW_ID at $SAMPLE_RATE Hz..."
   	echo "Asking ffmpeg to stream only HLS segments at $STREAM_RATE Hz......" 
   	## Streaming HLS only via mpegts
-	nice -n -10 ffmpeg -f jack -i ffjack -f segment -segment_list "/tmp/$NODE_NAME/hls/$timestamp/live.m3u8" -segment_list_flags +live -segment_time $SEGMENT_DURATION -segment_format mpegts -ar $STREAM_RATE -ac $CHANNELS -threads 3 -acodec aac "/tmp/$NODE_NAME/hls/$timestamp/live%03d.ts" &
+	$NICE_HIGH ffmpeg -f jack -i ffjack -f segment -segment_list "/tmp/$NODE_NAME/hls/$timestamp/live.m3u8" -segment_list_flags +live -segment_time $SEGMENT_DURATION -segment_format mpegts -ar $STREAM_RATE -ac $CHANNELS -threads 3 -acodec aac "/tmp/$NODE_NAME/hls/$timestamp/live%03d.ts" &
 elif [ "$NODE_TYPE" = "dev-virt-s3" ]; then
     SAMPLE_RATE=48000
     STREAM_RATE=48000
   echo "Sampling from $AUDIO_HW_ID at $SAMPLE_RATE Hz..."
     echo "Asking ffmpeg to stream only HLS segments at $STREAM_RATE Hz......" 
     ## Streaming HLS only via mpegts
-  nice -n -10 ffmpeg -re -fflags +genpts -stream_loop -1 -i "samples/haro-strait_2005.wav" \
+  $NICE_HIGH ffmpeg -re -fflags +genpts -stream_loop -1 -i "samples/haro-strait_2005.wav" \
     -f segment -segment_list "/tmp/$NODE_NAME/hls/$timestamp/live.m3u8" -segment_list_flags +live -segment_time $SEGMENT_DURATION -segment_format mpegts \
     -ar $STREAM_RATE -ac $CHANNELS -threads 3 -acodec aac "/tmp/$NODE_NAME/hls/$timestamp/live%03d.ts" &
 else
