@@ -1,13 +1,14 @@
 # Node Dockerfile for hydrophone streaming
 # Multi-arch self-contained build for CI/CD deployment
 
-FROM python:3.11-slim-bookworm
+ARG BASE_IMAGE=python:3.11-slim-bookworm
+FROM ${BASE_IMAGE}
 
 LABEL org.opencontainers.image.source="https://github.com/orcasound/orcanode"
 LABEL org.opencontainers.image.description="Orcasound hydrophone streaming node"
 LABEL org.opencontainers.image.authors="Orcasound <orcanode-devs@orcasound.net>"
 
-# Install system dependencies
+# Install system dependencies (only if using Python base, skip if using orcabase)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     jack-capture \

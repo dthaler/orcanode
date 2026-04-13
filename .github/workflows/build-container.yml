@@ -5,14 +5,12 @@ on:
     branches: [main]
     paths:
       - 'node/**'
-      - 'base/**'
       - '.github/workflows/build-container.yml'
     tags:
       - 'v*.*.*'  # Trigger on version tags
   pull_request:
     paths:
       - 'node/**'
-      - 'base/**'
       - '.github/workflows/build-container.yml'
   workflow_dispatch:
 
@@ -22,9 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Build base image
-        run: docker build -t orcastream/orcabase:latest ./base/amd64
-
       - name: Build and test on x86_64
         run: |
           docker build -t orcanode:test ./node
@@ -33,11 +28,12 @@ jobs:
   
   build-and-push:
     needs: test
-    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      actions: write  # Required for cache-to: type=gha
     
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -55,16 +51,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push multi-arch base image
-        uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
-        with:
-          context: ./base/amd64
-          platforms: linux/amd64,linux/arm/v7,linux/arm64
-          push: true
-          tags: ghcr.io/${{ github.repository }}/orcabase:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5.5.1
@@ -81,7 +67,7 @@ jobs:
             # Latest tag for main branch
             type=raw,value=latest,enable={{is_default_branch}}
       
-      - name: Build and push multi-arch node images
+      - name: Build and push multi-arch images
         uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
         with:
           context: ./node
@@ -89,7 +75,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            BASE_IMAGE=ghcr.io/${{ github.repository }}/orcabase:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
