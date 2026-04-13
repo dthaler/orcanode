@@ -2,16 +2,21 @@ name: Build SD Card Image
 
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # Required for creating releases
+      packages: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Free disk space
         run: |
@@ -22,16 +27,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xz-utils qemu-system-arm qemu-user-static binfmt-support
+          sudo apt-get install -y xz-utils qemu-system-arm qemu-user-static binfmt-support cloud-guest-utils
 
-      - name: Enable QEMU user-mode emulation for ARM64
-        run: sudo update-binfmts --enable qemu-aarch64
+      - name: Enable QEMU user-mode emulation for ARM (32-bit)
+        run: sudo update-binfmts --enable qemu-arm
 
-      - name: Download Raspberry Pi OS Lite (64-bit)
+      - name: Download Raspberry Pi OS Lite (32-bit)
         run: |
-          echo "Downloading latest Raspberry Pi OS Lite arm64..."
-          curl -L --retry 3 -o raspios.img.xz \
-            "https://downloads.raspberrypi.com/raspios_lite_arm64_latest"
+          echo "Downloading latest Raspberry Pi OS Lite armhf (32-bit)..."
+          curl -L --retry 3 -o raspios.img.xz "https://downloads.raspberrypi.com/raspios_lite_armhf_latest"
           ls -lh raspios.img.xz
 
       - name: Decompress image
@@ -40,11 +44,16 @@ jobs:
           mv raspios.img raspios-orcanode.img
           ls -lh raspios-orcanode.img
 
-      - name: Setup loop device
+      - name: Expand the root filesystem and set up loop device
         run: |
+          truncate -s 8G raspios-orcanode.img
           LOOP=$(sudo losetup -Pf --show raspios-orcanode.img)
           echo "LOOP=$LOOP" >> $GITHUB_ENV
-          echo "Loop device: $LOOP"
+          # Grow partition 2 to fill the new free space before resizing the filesystem.
+          sudo growpart $LOOP 2
+          # e2fsck returns 1 when it fixes minor issues — treat that as success.
+          sudo e2fsck -fy ${LOOP}p2 || [ $? -eq 1 ]
+          sudo resize2fs ${LOOP}p2
 
       - name: Mount partitions
         env:
@@ -66,16 +75,36 @@ jobs:
           sudo mount --bind /sys /mnt/sys
           sudo mount --bind /dev /mnt/dev
           sudo mount --bind /dev/pts /mnt/dev/pts
-          sudo cp /usr/bin/qemu-aarch64-static /mnt/usr/bin/
+          sudo cp /usr/bin/qemu-arm-static /mnt/usr/bin/
           echo "Chroot environment ready"
 
+      - name: Set up apt sources to match installed Raspberry Pi OS version
+        run: |
+          # Detect the Debian codename already installed in the image so we can set up
+          # matching sources (Raspberry Pi OS moves between releases; do not hard-code).
+          CODENAME=$(sudo chroot /mnt bash -c '. /etc/os-release; echo "$VERSION_CODENAME"')
+          echo "Detected OS codename: $CODENAME"
+
+          # Remove ALL apt source files — both legacy one-line-per-entry (.list) and
+          # DEB822 format (.sources) — so that no stale or conflicting repos remain.
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.list    || true
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.sources || true
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.save    || true
+
+          # Install matching Debian and Raspberry Pi Foundation sources.
+          sudo tee /mnt/etc/apt/sources.list > /dev/null << EOF
+deb http://deb.debian.org/debian ${CODENAME} main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian ${CODENAME}-updates main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian-security ${CODENAME}-security main contrib non-free non-free-firmware
+EOF
+          sudo tee /mnt/etc/apt/sources.list.d/raspi.list > /dev/null << EOF
+deb http://archive.raspberrypi.com/debian ${CODENAME} main
+EOF
+
+          # Save codename for subsequent steps (Docker repo selection, etc.)
+          echo "DEBIAN_CODENAME=${CODENAME}" >> $GITHUB_ENV
+
       - name: Set pi user password
-        # Reads PI_PASSWORD from a repository secret and sets it as the default password for
-        # the "pi" account using two complementary mechanisms:
-        #   1. chpasswd -e inside the chroot updates /etc/shadow directly.
-        #   2. /boot/userconf.txt is written for compatibility with newer Raspberry Pi OS
-        #      releases (Bullseye+) that apply credentials from that file on first boot.
-        # If PI_PASSWORD is not set the step is skipped and no password is changed.
         env:
           PI_PASSWORD: ${{ secrets.PI_PASSWORD }}
         run: |
@@ -83,100 +112,151 @@ jobs:
             echo "PI_PASSWORD secret not set; leaving default pi password unchanged"
           else
             HASHED=$(openssl passwd -6 -stdin <<< "$PI_PASSWORD")
-            # Update /etc/shadow inside the image.
             echo "pi:${HASHED}" | sudo chroot /mnt chpasswd -e
-            # Also write the userconf.txt first-boot credentials file used by newer Pi OS.
             echo "pi:${HASHED}" | sudo tee /mnt/boot/userconf.txt > /dev/null
             sudo chmod 600 /mnt/boot/userconf.txt
             echo "Password set for pi user"
+            
+            # Save the password hash for use in encryption.
+            echo "PASSWORD_HASH=$HASHED" >> $GITHUB_ENV
           fi
 
-      - name: Clone orcanode repository into image
-        run: |
-          sudo mkdir -p /mnt/home/pi
-          sudo git clone https://github.com/orcasound/orcanode /mnt/home/pi/orcanode
-          sudo chown -R 1000:1000 /mnt/home/pi/orcanode
-          echo "Orcanode repository cloned"
-
-      - name: Install Docker
-        run: |
-          sudo chroot /mnt bash -c "curl -fsSL https://get.docker.com | sh"
-          sudo chroot /mnt bash -c "usermod -aG docker pi || true"
-          echo "Docker installed"
-
-      - name: Install docker-compose
-        run: |
-          COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest \
-            | grep '"tag_name"' | cut -d'"' -f4)
-          echo "Installing docker-compose ${COMPOSE_VERSION} (linux-aarch64)..."
-          sudo curl -L \
-            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-aarch64" \
-            -o /mnt/usr/local/bin/docker-compose
-          sudo chmod +x /mnt/usr/local/bin/docker-compose
-          echo "docker-compose ${COMPOSE_VERSION} installed at /usr/local/bin/docker-compose"
-
-      - name: Configure crontab for pi user
-        run: |
-          sudo mkdir -p /mnt/var/spool/cron/crontabs
-          # Cron environment variables reduce repetition of the compose binary and file paths.
-          printf '%s\n%s\n%s\n%s\n' \
-            'DC=/usr/local/bin/docker-compose' \
-            'CF=/home/pi/orcanode/node/docker-compose.yml' \
-            '0 0 * * * $DC -f $CF down && $DC -f $CF up -d' \
-            '@reboot sleep 60 && $DC -f $CF up -d' \
-            | sudo tee /mnt/var/spool/cron/crontabs/pi > /dev/null
-          sudo chroot /mnt bash -c "chown pi:crontab /var/spool/cron/crontabs/pi 2>/dev/null || chown 1000:1000 /var/spool/cron/crontabs/pi"
-          sudo chmod 600 /mnt/var/spool/cron/crontabs/pi
-          echo "Crontab configured for pi user"
-
-      - name: Install Mezmo logging agent
-        # Mezmo does not provide a .deb package; use the official install script instead.
-        # The script is the vendor-documented installation method (no checksum published).
-        run: |
-          sudo chroot /mnt bash -c "curl -s https://assets.mezmo.com/install/linux | bash" \
-            || echo "Warning: Mezmo installation failed or skipped"
-
-      - name: Install Dataplicity agent
-        # curl | sh is the vendor-documented installation method for Dataplicity.
+      - name: Encrypt and embed remote access secrets
         env:
+          PI_PASSWORD: ${{ secrets.PI_PASSWORD }}
           DATAPLICITY_TOKEN: ${{ secrets.DATAPLICITY_TOKEN }}
+          SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
         run: |
-          if [ -n "$DATAPLICITY_TOKEN" ]; then
-            sudo chroot /mnt bash -c "curl -s https://www.dataplicity.com/${DATAPLICITY_TOKEN}/ | sh"
-            echo "Dataplicity agent installed"
+          # Only proceed if we have a password set and at least one token.
+          if [ -n "$PI_PASSWORD" ] && { [ -n "$DATAPLICITY_TOKEN" ] || [ -n "$SOCKETXP_AUTH_TOKEN" ]; }; then
+            echo "Encrypting remote access secrets..."
+            
+            # Create secrets file using printf.
+            printf '# Remote access tokens - decrypted on first boot\nDATAPLICITY_TOKEN="%s"\nSOCKETXP_AUTH_TOKEN="%s"\n' \
+              "$DATAPLICITY_TOKEN" \
+              "$SOCKETXP_AUTH_TOKEN" \
+              > /tmp/secrets.env
+            
+            # Derive encryption key from password hash.
+            PASSPHRASE=$(printf '%s' "$PASSWORD_HASH" | sha256sum | cut -d' ' -f1 | cut -c1-32)
+            
+            # Encrypt secrets file.
+            echo "$PASSPHRASE" | openssl enc -aes-256-cbc -pbkdf2 -in /tmp/secrets.env -out /tmp/orcanode-secrets.enc -pass stdin
+            
+            # Copy encrypted file to image.
+            sudo mkdir -p /mnt/usr/local/etc
+            sudo cp /tmp/orcanode-secrets.enc /mnt/usr/local/etc/orcanode-secrets.enc
+            sudo chmod 600 /mnt/usr/local/etc/orcanode-secrets.enc
+            
+            # Clean up.
+            shred -u /tmp/secrets.env 2>/dev/null || rm -f /tmp/secrets.env
+            rm -f /tmp/orcanode-secrets.enc
+            
+            echo "Encrypted secrets embedded in image"
           else
-            echo "DATAPLICITY_TOKEN secret not set; skipping Dataplicity installation"
+            echo "No password or tokens configured; skipping secret encryption"
           fi
 
-      - name: Install SocketXP agent
-        # curl | bash is the vendor-documented installation method for SocketXP.
+      - name: Configure secret decryption on first boot
         run: |
-          sudo chroot /mnt bash -c "curl -s https://portal.socketxp.com/install.sh | bash" \
-            || echo "Warning: SocketXP installation failed or skipped"
+          # Copy decryption script.
+          sudo cp sd-image-files/install-secrets.sh /mnt/usr/local/sbin/install-secrets.sh
+          sudo chmod 755 /mnt/usr/local/sbin/install-secrets.sh
+          
+          # Copy and enable systemd service.
+          sudo cp sd-image-files/install-secrets.service /mnt/etc/systemd/system/install-secrets.service
+          sudo systemctl --root=/mnt enable install-secrets.service
+          
+          echo "Secret decryption configured for first boot"
 
-      - name: Configure SocketXP identity wipe on first boot
+      - name: Install first-boot and helper scripts
         run: |
-          sudo tee /mnt/etc/systemd/system/clear-socketxp.service > /dev/null << 'EOF'
-          [Unit]
-          Description=Clear SocketXP identity on first boot
-          After=network.target
+          # Install orcanode first-boot script and service (clones repo on first boot).
+          sudo cp sd-image-files/install-orcanode.sh /mnt/usr/local/sbin/install-orcanode.sh
+          sudo chmod 755 /mnt/usr/local/sbin/install-orcanode.sh
+          sudo cp sd-image-files/install-orcanode.service /mnt/etc/systemd/system/install-orcanode.service
+          sudo systemctl --root=/mnt enable install-orcanode.service
 
-          [Service]
-          Type=oneshot
-          ExecStart=/bin/bash -c "rm -rf /var/lib/socketxp/*"
-          ExecStartPost=/bin/bash -c "systemctl disable clear-socketxp.service"
-          RemainAfterExit=yes
+          # Install orcanode-update helper at /usr/local/bin/orcanode-update.
+          sudo cp sd-image-files/orcanode-update.sh /mnt/usr/local/bin/orcanode-update
+          sudo chmod 755 /mnt/usr/local/bin/orcanode-update
 
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          sudo systemctl --root=/mnt enable clear-socketxp.service \
-            || echo "Warning: could not enable clear-socketxp.service (SocketXP may not be installed)"
-          echo "SocketXP identity wipe service configured"
+          # Install rename-node helper at /usr/local/sbin/rename-node.
+          sudo cp sd-image-files/rename-node.sh /mnt/usr/local/sbin/rename-node
+          sudo chmod 755 /mnt/usr/local/sbin/rename-node
+
+          echo "Helper scripts installed"
+
+      - name: Install Docker in chroot
+        run: |
+          echo "Installing Docker CE and Docker Compose plugin..."
+
+          # The latest Raspberry Pi OS image may use sqv (Sequoia) for OpenPGP
+          # verification and may not have the Debian Bookworm signing keys in its
+          # keyring. Bootstrap the keyring by temporarily trusting the Debian repos
+          # (so apt-get update and install succeed), then restore proper verification.
+          sudo sed -i \
+            's|deb http://deb\.debian\.org|deb [trusted=yes] http://deb.debian.org|g' \
+            /mnt/etc/apt/sources.list
+          sudo chroot /mnt apt-get update -qq
+          sudo chroot /mnt apt-get install -y -qq debian-archive-keyring
+          sudo sed -i \
+            's|\[trusted=yes\] ||g' \
+            /mnt/etc/apt/sources.list
+
+          # Install prerequisites.
+          sudo chroot /mnt apt-get update
+          sudo chroot /mnt apt-get install -y --no-install-recommends \
+            ca-certificates \
+            curl \
+            gnupg \
+            lsb-release
+          
+          # Add Docker's official GPG key.
+          sudo mkdir -p /mnt/etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/debian/gpg | \
+            sudo chroot /mnt gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          
+          # Set up the Docker repository.
+          # Use the detected codename; fall back to bookworm if Docker has no
+          # distribution-specific packages for the detected release yet.
+          DOCKER_DIST="${DEBIAN_CODENAME}"
+          if ! curl -fsSI "https://download.docker.com/linux/debian/dists/${DOCKER_DIST}/" >/dev/null 2>&1; then
+            echo "Docker repo for ${DOCKER_DIST} not available, using bookworm"
+            DOCKER_DIST="bookworm"
+          fi
+          echo \
+            "deb [arch=armhf signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+            ${DOCKER_DIST} stable" | sudo tee /mnt/etc/apt/sources.list.d/docker.list > /dev/null
+          
+          # Install Docker Engine, CLI, and Compose plugin.
+          sudo chroot /mnt apt-get update
+          sudo chroot /mnt apt-get install -y --no-install-recommends \
+            docker-ce \
+            docker-ce-cli \
+            containerd.io \
+            docker-buildx-plugin \
+            docker-compose-plugin
+          
+          # Add pi user to docker group.
+          sudo chroot /mnt usermod -aG docker pi
+          
+          # Enable Docker service.
+          sudo systemctl --root=/mnt enable docker.service
+          sudo systemctl --root=/mnt enable containerd.service
+          
+          echo "Docker installed successfully"
+
+      - name: Clean machine-id for unique first boot
+        run: |
+          sudo rm -f /mnt/etc/machine-id
+          sudo rm -f /mnt/var/lib/dbus/machine-id
+          sudo touch /mnt/etc/machine-id
+          echo "machine-id cleaned"
 
       - name: Clean up chroot environment
         run: |
-          sudo rm -f /mnt/usr/bin/qemu-aarch64-static
+          sudo rm -f /mnt/usr/bin/qemu-arm-static
           sudo umount /mnt/dev/pts || true
           sudo umount /mnt/dev    || true
           sudo umount /mnt/sys    || true
@@ -242,12 +322,51 @@ jobs:
       - name: Compress image
         run: |
           gzip raspios-orcanode.img
-          ls -lh raspios-orcanode.img.gz
+          
+          # Add version info to filename.
+          if [ "${{ github.ref_type }}" == "tag" ]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="dev-$(date +%Y%m%d)-${GITHUB_SHA:0:7}"
+          fi
+          
+          mv raspios-orcanode.img.gz raspios-orcanode-${VERSION}.img.gz
+          ls -lh raspios-orcanode-${VERSION}.img.gz
+          echo "IMAGE_FILE=raspios-orcanode-${VERSION}.img.gz" >> $GITHUB_ENV
 
-      - name: Upload SD card image as GitHub artifact
-        uses: actions/upload-artifact@v4
+      - name: Generate checksums
+        run: |
+          sha256sum ${{ env.IMAGE_FILE }} > ${{ env.IMAGE_FILE }}.sha256
+          cat ${{ env.IMAGE_FILE }}.sha256
+
+      - name: Upload to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
-          name: raspios-orcanode
-          path: raspios-orcanode.img.gz
-          retention-days: 30
-          if-no-files-found: error
+          files: |
+            ${{ env.IMAGE_FILE }}
+            ${{ env.IMAGE_FILE }}.sha256
+          body: |
+            ## Orcanode SD Card Image ${{ github.ref_name }}
+            
+            ### Installation
+            1. Download `${{ env.IMAGE_FILE }}`
+            2. Verify checksum: `sha256sum -c ${{ env.IMAGE_FILE }}.sha256`
+            3. Flash to SD card with Raspberry Pi Imager or Etcher
+            4. See [setup guide](sd-image-files/README.md) for configuration
+            
+            ### What's New
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+            
+            ### Container Version
+            This image pulls: `ghcr.io/orcasound/orcanode/orcanode:${{ github.ref_name }}`
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
+
+      - name: Upload artifact for testing (PR/dev builds)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: raspios-orcanode-dev
+          path: ${{ env.IMAGE_FILE }}
+          retention-days: 1

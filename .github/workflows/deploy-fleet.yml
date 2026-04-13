@@ -1,0 +1,59 @@
+name: Deploy to Orcanode Fleet
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deployment target'
+        required: true
+        type: choice
+        options:
+          - canary
+          - production
+          - all
+      image_tag:
+        description: 'Container image tag to deploy (default: latest)'
+        required: false
+        default: 'latest'
+
+jobs:
+  deploy-canary:
+    if: inputs.target == 'canary' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Deploy to canary group via SocketXP
+        env:
+          SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          bash sd-image-files/socketxp-deploy.sh \
+            "$SOCKETXP_AUTH_TOKEN" \
+            "canary" \
+            "$IMAGE_TAG"
+      
+      - name: Wait for canary health check
+        run: |
+          echo "Waiting 5 minutes for canary to stabilize..."
+          sleep 300
+          # Add health check logic here
+  
+  deploy-production:
+    if: inputs.target == 'production' || inputs.target == 'all'
+    needs: deploy-canary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Deploy to production group via SocketXP
+        env:
+          SOCKETXP_AUTH_TOKEN: ${{ secrets.SOCKETXP_AUTH_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          bash sd-image-files/socketxp-deploy.sh \
+            "$SOCKETXP_AUTH_TOKEN" \
+            "production" \
+            "$IMAGE_TAG"

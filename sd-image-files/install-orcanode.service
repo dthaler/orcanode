@@ -1,0 +1,14 @@
+[Unit]
+Description=Install Orcanode on first boot
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=!/home/pi/orcanode
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/install-orcanode.sh
+RemainAfterExit=yes
+User=root
+
+[Install]
+WantedBy=multi-user.target
