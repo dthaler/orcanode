@@ -175,7 +175,20 @@ jobs:
       - name: Install Docker in chroot
         run: |
           echo "Installing Docker CE and Docker Compose plugin..."
-          
+
+          # The latest Raspberry Pi OS image may use sqv (Sequoia) for OpenPGP
+          # verification and may not have the Debian Bookworm signing keys in its
+          # keyring. Bootstrap the keyring by temporarily trusting the Debian repos
+          # (so apt-get update and install succeed), then restore proper verification.
+          sudo sed -i \
+            's|deb http://deb\.debian\.org|deb [trusted=yes] http://deb.debian.org|g' \
+            /mnt/etc/apt/sources.list
+          sudo chroot /mnt apt-get update -qq
+          sudo chroot /mnt apt-get install -y -qq debian-archive-keyring
+          sudo sed -i \
+            's|\[trusted=yes\] ||g' \
+            /mnt/etc/apt/sources.list
+
           # Install prerequisites.
           sudo chroot /mnt apt-get update
           sudo chroot /mnt apt-get install -y --no-install-recommends \

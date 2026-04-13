@@ -98,13 +98,10 @@ What the workflow does:
    - Enables SSH by default (`/boot/ssh`).
    - Optionally sets the `pi` user password (`PI_PASSWORD` secret).
    - Installs Docker (CE, CLI, Compose plugin).
-   - Configures logspout sidecar container for log shipping.
    - Encrypts remote access tokens (Dataplicity, SocketXP) using the pi user's password and embeds them in the image at `/usr/local/etc/orcanode-secrets.enc`.
    - Writes a first-boot script that decrypts and installs remote access agents.
-   - Writes a first-boot script that clones the orcanode repository.
+   - Writes a first-boot script that clones the orcanode repository and creates a `docker-compose.yml` with a logspout sidecar (`SYSLOG_URL` and `SYSLOG_STRUCTURED_DATA` are read at runtime from the node's `.env` file, not at image-build time).
    - Installs the `orcanode-update` helper at `/usr/local/bin/orcanode-update`.
-   - Configures a crontab for the `pi` user to start and daily-restart the
-     container.
 4. Cleans the machine-id so each flashed card gets a unique identity on boot.
 5. Compresses the image and:
    - For **pull request / dev builds**: uploads it as the `raspios-orcanode-dev`
