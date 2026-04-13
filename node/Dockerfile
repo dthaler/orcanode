@@ -1,38 +1,40 @@
 # Node Dockerfile for hydrophone streaming
-# use base image for project
+# Multi-arch self-contained build for CI/CD deployment
 
-ARG BASE_IMAGE=orcastream/orcabase:latest
-FROM ${BASE_IMAGE}
+FROM python:3.9-slim-bookworm
+
+LABEL org.opencontainers.image.source="https://github.com/orcasound/orcanode"
+LABEL org.opencontainers.image.description="Orcasound hydrophone streaming node"
 LABEL maintainer="Orcasound <orcanode-devs@orcasound.net>"
 
-###### hack to get ffmpeg to build
-# RUN apt-get update && apt-get install -y --no-install-recommends libraspberrypi-dev raspberrypi-kernel-headers
-# RUN git clone https://github.com/raspberrypi/userland.git
-# RUN cd userland/host_applications/linux/apps/hello_pi && ./rebuild.sh
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    jack-capture \
+    jackd2 \
+    alsa-utils \
+    git \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# Install Python dependencies
+RUN pip3 install --no-cache-dir \
+    boto3 \
+    inotify
 
-###### Install Jack  #################################
-
-ENV DEBIAN_FRONTEND noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends jack-capture
-RUN apt-get update && apt-get install -y --no-install-recommends jackd1
-
-# Install ALSA and GPAC
-#RUN apt-get update && apt-get install -y --no-install-recommends \
-#  alsa-utils \
-#  gpac
-
-############################### Copy files #####################################
-
+# Copy application files
+WORKDIR /app
 COPY . .
 
-################################## TODO ########################################
-# Do the following:
-#   - Add pisound driver curl command  
-#   - Add other audio drivers and configure via CLI if possible?
-#   - Remove "misc tools" and other installs no longer needed (upon Resin.io deployment)?
+# Set environment defaults
+ENV DEBIAN_FRONTEND=noninteractive \
+    SAMPLE_RATE=48000 \
+    CHANNELS=1 \
+    NODE_TYPE=hls-only
 
-################################# Miscellaneous ################################
+# Make scripts executable
+RUN chmod +x *.sh
 
-# Clean up APT when done.
-RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# Run the streaming script
+CMD ["./stream.sh"]
