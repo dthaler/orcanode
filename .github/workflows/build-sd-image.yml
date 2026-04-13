@@ -78,17 +78,31 @@ jobs:
           sudo cp /usr/bin/qemu-arm-static /mnt/usr/bin/
           echo "Chroot environment ready"
 
-      - name: Fix Raspberry Pi OS apt sources (force Bookworm armhf)
+      - name: Set up apt sources to match installed Raspberry Pi OS version
         run: |
-          # Remove ALL apt source files — both legacy one-line-per-entry (.list) and
-          # DEB822 format (.sources) — so that no Trixie or other unintended repos remain.
-          sudo rm -f /mnt/etc/apt/sources.list.d/*.list  || true
-          sudo rm -f /mnt/etc/apt/sources.list.d/*.sources || true
-          sudo rm -f /mnt/etc/apt/sources.list.d/*.save || true
+          # Detect the Debian codename already installed in the image so we can set up
+          # matching sources (Raspberry Pi OS moves between releases; do not hard-code).
+          CODENAME=$(sudo chroot /mnt bash -c '. /etc/os-release; echo "$VERSION_CODENAME"')
+          echo "Detected OS codename: $CODENAME"
 
-          # Install known-good Bookworm-only sources.
-          sudo cp sd-image-files/sources.list /mnt/etc/apt/sources.list
-          sudo cp sd-image-files/raspi.list /mnt/etc/apt/sources.list.d/raspi.list
+          # Remove ALL apt source files — both legacy one-line-per-entry (.list) and
+          # DEB822 format (.sources) — so that no stale or conflicting repos remain.
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.list    || true
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.sources || true
+          sudo rm -f /mnt/etc/apt/sources.list.d/*.save    || true
+
+          # Install matching Debian and Raspberry Pi Foundation sources.
+          sudo tee /mnt/etc/apt/sources.list > /dev/null << EOF
+deb http://deb.debian.org/debian ${CODENAME} main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian ${CODENAME}-updates main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian-security ${CODENAME}-security main contrib non-free non-free-firmware
+EOF
+          sudo tee /mnt/etc/apt/sources.list.d/raspi.list > /dev/null << EOF
+deb http://archive.raspberrypi.com/debian ${CODENAME} main
+EOF
+
+          # Save codename for subsequent steps (Docker repo selection, etc.)
+          echo "DEBIAN_CODENAME=${CODENAME}" >> $GITHUB_ENV
 
       - name: Set pi user password
         env:
@@ -204,9 +218,16 @@ jobs:
             sudo chroot /mnt gpg --dearmor -o /etc/apt/keyrings/docker.gpg
           
           # Set up the Docker repository.
+          # Use the detected codename; fall back to bookworm if Docker has no
+          # distribution-specific packages for the detected release yet.
+          DOCKER_DIST="${DEBIAN_CODENAME}"
+          if ! curl -fsSI "https://download.docker.com/linux/debian/dists/${DOCKER_DIST}/" >/dev/null 2>&1; then
+            echo "Docker repo for ${DOCKER_DIST} not available, using bookworm"
+            DOCKER_DIST="bookworm"
+          fi
           echo \
             "deb [arch=armhf signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-            bookworm stable" | sudo tee /mnt/etc/apt/sources.list.d/docker.list > /dev/null
+            ${DOCKER_DIST} stable" | sudo tee /mnt/etc/apt/sources.list.d/docker.list > /dev/null
           
           # Install Docker Engine, CLI, and Compose plugin.
           sudo chroot /mnt apt-get update
