@@ -44,7 +44,6 @@ jobs:
           cp node/.env.example test.env
 
           # Replace FILLTHISIN placeholders with test values.
-          sed -i 's/AWSSECRETACCESSKEY=FILLTHISIN/AWSSECRETACCESSKEY=test-key/g' test.env
           sed -i 's/AWS_ACCESS_KEY_ID=FILLTHISIN/AWS_ACCESS_KEY_ID=test-key-id/g' test.env
           sed -i 's/AWS_SECRET_ACCESS_KEY=FILLTHISIN/AWS_SECRET_ACCESS_KEY=test-secret/g' test.env
           sed -i 's/key="FILLTHISIN"/key="test-logdna-key"/g' test.env
