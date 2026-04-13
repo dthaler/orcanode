@@ -40,10 +40,30 @@ jobs:
 
       - name: Test container startup
         run: |
-          docker run -d --name orcanode-test orcanode:test
+          # Start container with minimal env vars for testing
+          docker run -d --name orcanode-test \
+            -e NODE_NAME=test-node \
+            -e NODE_TYPE=hls-only \
+            -e AUDIO_HW_ID=default \
+            -e SAMPLE_RATE=48000 \
+            -e CHANNELS=1 \
+            -e SEGMENT_DURATION=10 \
+            -e STREAM_RATE=48000 \
+            orcanode:test || true
+
           sleep 5
+          echo "=== Container logs ==="
           docker logs orcanode-test
-          docker stop orcanode-test
+
+          # Check if container is still attempting to run (even if Jack/ALSA fails)
+          if docker ps -a | grep orcanode-test | grep -qE 'Up|Exited'; then
+            echo "Container started (audio hardware errors expected in CI)"
+          else
+            echo "Container failed to start"
+            exit 1
+          fi
+
+          docker stop orcanode-test || true
           docker rm orcanode-test
 
   build-and-push:

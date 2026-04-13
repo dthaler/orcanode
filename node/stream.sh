@@ -29,7 +29,7 @@ echo $timestamp > /tmp/$NODE_NAME/latest.txt
 
 STREAM_RATE=48000
 
-if [ -z ${SAMPLE_RATE+48000}]; then
+if [ -z ${SAMPLE_RATE+48000} ]; then
     echo "setting sampling rate to 48000"
 else
     echo "sample rate is set to $SAMPLE_RATE";
