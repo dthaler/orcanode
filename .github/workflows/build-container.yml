@@ -165,7 +165,7 @@ jobs:
             type=ref,event=tag
             # Branch-based tags
             type=ref,event=branch
-            type=sha,prefix={{branch}}-
+            type=sha
             # Latest tag for main branch
             type=raw,value=latest,enable={{is_default_branch}}
 
