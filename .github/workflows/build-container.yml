@@ -2,6 +2,8 @@ name: Build and Test Orcanode Container
 
 on:
   push:
+    tags:
+      - 'v*'
     branches: [main,container-release]
     paths:
       - 'node/**'
