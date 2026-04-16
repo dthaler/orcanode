@@ -164,6 +164,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=ref,event=tag
             # Branch-based tags
             type=ref,event=branch
             type=sha,prefix={{branch}}-
