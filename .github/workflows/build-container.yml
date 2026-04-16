@@ -2,7 +2,7 @@ name: Build and Test Orcanode Container
 
 on:
   push:
-    branches: [main]
+    branches: [main,container-release]
     paths:
       - 'node/**'
       - 'base/**'
@@ -131,7 +131,7 @@ jobs:
 
   build-and-push:
     needs: test
-    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.ref == 'ref/heads/container-release' || github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
